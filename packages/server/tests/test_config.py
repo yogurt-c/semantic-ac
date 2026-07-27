@@ -7,11 +7,21 @@ from search_server.redis_client import get_redis_client
 def test_settings_default_redis_url_and_duckdb_path(monkeypatch):
     monkeypatch.delenv("REDIS_URL", raising=False)
     monkeypatch.delenv("DUCKDB_PATH", raising=False)
+    monkeypatch.delenv("ALLOWED_ORIGINS", raising=False)
 
     settings = Settings()
 
     assert settings.redis_url == "redis://localhost:6379/0"
     assert settings.duckdb_path == "data/search_events.duckdb"
+    assert settings.allowed_origins == ["*"]
+
+
+def test_settings_parses_comma_separated_allowed_origins(monkeypatch):
+    monkeypatch.setenv("ALLOWED_ORIGINS", "https://example.com, https://shop.example.com ,")
+
+    settings = Settings()
+
+    assert settings.allowed_origins == ["https://example.com", "https://shop.example.com"]
 
 
 def test_get_settings_is_cached():

@@ -1,6 +1,8 @@
 # @semantic-ac/client
 
-Lightweight TypeScript SDK for context-aware, typo-tolerant search autocomplete.
+문맥 인식/오타 허용 검색어 자동완성을 위한 경량 TypeScript SDK.
+[semantic-ac](../../README.md) 툴킷의 일부이며, [`docs/CONTRACT.md`](../../docs/CONTRACT.md)에
+정의된 스키마로 [`search-server`](../server)의 suggestion API와 짝을 이룬다.
 
 ## Install
 
@@ -15,22 +17,22 @@ import { SemanticAutocompleteClient, DebounceCancelledError } from "@semantic-ac
 
 const client = new SemanticAutocompleteClient({
   baseUrl: "https://api.example.com",
-  debounceMs: 150, // optional, default 150
-  cacheMaxEntries: 500, // optional, default 500
+  debounceMs: 150, // 선택, 기본값 150
+  cacheMaxEntries: 500, // 선택, 기본값 500
 });
 ```
 
 ### `suggest(prefix)`
 
-Resolves with cached suggestions immediately. On a cache miss it waits out
-the debounce window before calling the server.
+캐시된 추천어가 있으면 즉시 resolve한다. 캐시 미스면 debounce 윈도우가 끝난 뒤에
+서버를 호출한다.
 
-**Important:** if `suggest()` is called again before a previous call's
-debounce window has elapsed, the previous call's promise rejects with
-`DebounceCancelledError` instead of hanging forever. This is expected
-behavior for an autocomplete input (only the latest keystroke's request
-matters), but callers **must** handle the rejection — an unhandled
-`DebounceCancelledError` becomes an unhandled promise rejection.
+**중요:** 이전 호출의 debounce 윈도우가 아직 끝나기 전에 `suggest()`가 다시
+호출되면, 이전 호출의 프로미스는 무한 대기하는 대신 `DebounceCancelledError`로
+reject된다. 이는 자동완성 입력에서 기대되는 동작(가장 최신 키 입력의 요청만
+유효)이지만, 호출자는 이 reject를 **반드시** 처리해야 한다 — 처리하지 않은
+`DebounceCancelledError`는 처리되지 않은 프로미스 거부(unhandled promise
+rejection)로 이어진다.
 
 ```ts
 async function onInputChange(prefix: string) {
@@ -39,10 +41,10 @@ async function onInputChange(prefix: string) {
     render(suggestions);
   } catch (err) {
     if (err instanceof DebounceCancelledError) {
-      // A newer keystroke superseded this call — safe to ignore.
+      // 더 최신 키 입력이 이 호출을 대체함 — 무시해도 안전하다.
       return;
     }
-    // A real failure (network error, bad response shape, etc.)
+    // 실제 실패(네트워크 오류, 잘못된 응답 형식 등)
     reportError(err);
   }
 }
@@ -50,18 +52,30 @@ async function onInputChange(prefix: string) {
 
 ### `trackSearch(prefix, selected, action)`
 
-Fire-and-forget event tracking. The call does not need to be awaited to
-avoid blocking the UI, but the returned promise still rejects on failure
-(network error or non-2xx response) — errors are never swallowed. If you
-don't await it, attach a `.catch()` so a failure doesn't surface as an
-unhandled promise rejection:
+Fire-and-forget 방식의 이벤트 트래킹이다. UI를 막지 않기 위해 await할 필요는
+없지만, 반환된 프로미스는 실패 시(네트워크 오류 또는 non-2xx 응답) 여전히
+reject되며 — 오류를 절대 삼키지 않는다. await하지 않는다면, 실패가 처리되지 않은
+프로미스 거부로 드러나지 않도록 `.catch()`를 붙여야 한다:
 
 ```ts
-// Fire-and-forget, but still handle failure explicitly.
+// Fire-and-forget이지만, 실패는 명시적으로 처리한다.
 client
   .trackSearch(prefix, selectedSuggestion, "suggestion_click")
   .catch((err) => reportError(err));
 
-// Or, if you want to wait for confirmation:
+// 또는 확인을 기다리고 싶다면:
 await client.trackSearch(prefix, finalQuery, "final_search");
 ```
+
+## Development
+
+```bash
+pnpm install
+pnpm test        # vitest + 커버리지
+pnpm build        # dist/ 산출 (tsc)
+pnpm typecheck
+```
+
+## License
+
+MIT © 2026 yogurt-c

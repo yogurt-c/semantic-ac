@@ -18,5 +18,8 @@ docker compose up -d --build --wait
 echo "[e2e] client SDK 빌드"
 pnpm --filter @semantic-ac/client build
 
+echo "[e2e] vanilla 예제 import 경로 스모크 체크"
+node examples/vanilla/smoke-check.mjs
+
 echo "[e2e] E2E 테스트 실행"
 node tests/e2e/run.mjs

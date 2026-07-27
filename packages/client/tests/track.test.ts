@@ -57,4 +57,26 @@ describe("trackSearch", () => {
       ),
     ).rejects.toThrow("network down");
   });
+
+  it("defaults to a fetch implementation that survives being detached from `this` (regression: browsers throw 'Illegal invocation' when the native fetch is called as a bare function)", async () => {
+    const originalFetch = globalThis.fetch;
+    const brandedFetch = function (this: unknown) {
+      if (this !== globalThis) {
+        throw new TypeError("Illegal invocation");
+      }
+      return Promise.resolve(makeResponse(202));
+    };
+    globalThis.fetch = brandedFetch as typeof fetch;
+
+    try {
+      await expect(
+        trackSearch(
+          { baseUrl: "https://api.example.com" },
+          { prefix: "노트", selected: "노트북", action: "suggestion_click" },
+        ),
+      ).resolves.toBeUndefined();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });

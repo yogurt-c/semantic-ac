@@ -15,6 +15,9 @@ services:
     environment:
       REDIS_URL: redis://redis:6379/0
       DUCKDB_PATH: /data/search_events.duckdb
+      # 자사 서비스에 붙일 때는 프런트엔드 도메인으로 좁혀서 지정할 것
+      # (예: https://shop.example.com,https://m.shop.example.com)
+      ALLOWED_ORIGINS: "*"
     volumes:
       - duckdb-data:/data
     depends_on:

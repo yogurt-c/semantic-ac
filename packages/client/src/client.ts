@@ -35,7 +35,10 @@ export class SemanticAutocompleteClient {
 
   constructor(options: SemanticAutocompleteClientOptions) {
     this.baseUrl = options.baseUrl;
-    this.fetchImpl = options.fetchImpl ?? fetch;
+    // `fetch` is a "branded" built-in in browsers — calling it as `this.fetchImpl(url)`
+    // detaches it from `window` and throws `TypeError: Illegal invocation`. Bind the
+    // default to globalThis so it survives being stored as a method.
+    this.fetchImpl = options.fetchImpl ?? fetch.bind(globalThis);
     this.cache = new PrefixCache<string[]>(options.cacheMaxEntries);
     this.debouncedFetch = debounce((prefix: string) => {
       void this.executeFetch(prefix);

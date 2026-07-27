@@ -4,6 +4,22 @@
   "version": "0.0.0",
   "description": "Semantic-Autocomplete: context-aware, typo-tolerant search autocomplete toolkit",
   "license": "MIT",
+  "homepage": "https://github.com/yogurt-c/semantic-ac#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yogurt-c/semantic-ac.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yogurt-c/semantic-ac/issues"
+  },
+  "author": "yogurt-c",
+  "keywords": [
+    "autocomplete",
+    "search",
+    "typo-correction",
+    "semantic-search",
+    "self-hosted"
+  ],
   "packageManager": "pnpm@10.33.0",
   "scripts": {
     "test": "pnpm -r test",

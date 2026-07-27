@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>semantic-ac — vanilla JS 예제</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        max-width: 480px;
+        margin: 4rem auto;
+        color: #1a1a1a;
+      }
+      .search-box {
+        position: relative;
+      }
+      input[type="search"] {
+        width: 100%;
+        box-sizing: border-box;
+        font-size: 1rem;
+        padding: 0.75rem 1rem;
+        border: 1px solid #ccc;
+        border-radius: 8px;
+      }
+      ul.suggestions {
+        position: absolute;
+        top: calc(100% + 4px);
+        left: 0;
+        right: 0;
+        margin: 0;
+        padding: 0.25rem 0;
+        list-style: none;
+        background: #fff;
+        border: 1px solid #ccc;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+      }
+      ul.suggestions:empty {
+        display: none;
+      }
+      ul.suggestions li {
+        padding: 0.5rem 1rem;
+        cursor: pointer;
+      }
+      ul.suggestions li:hover {
+        background: #f2f2f2;
+      }
+      p.hint {
+        color: #666;
+        font-size: 0.85rem;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>semantic-ac 예제</h1>
+    <p class="hint">
+      docker-compose 스택이 <code>http://localhost:8000</code>에 떠 있어야 동작합니다.
+      실행 방법은 <a href="./README.md">README.md</a> 참고.
+    </p>
+
+    <div class="search-box">
+      <input id="q" type="search" placeholder="검색어를 입력해보세요 (예: 노트북)" autocomplete="off" />
+      <ul id="suggestions" class="suggestions"></ul>
+    </div>
+
+    <script type="module">
+      // 실제 서비스 코드에서는 npm으로 설치한 "@semantic-ac/client"에서 import한다.
+      // 이 예제는 저장소 안에서 바로 실행해볼 수 있도록 빌드 산출물을 상대 경로로 불러온다.
+      import {
+        SemanticAutocompleteClient,
+        DebounceCancelledError,
+      } from "../../packages/client/dist/index.js";
+
+      const client = new SemanticAutocompleteClient({
+        baseUrl: "http://localhost:8000",
+      });
+
+      const input = document.getElementById("q");
+      const list = document.getElementById("suggestions");
+
+      function renderSuggestions(suggestions) {
+        list.innerHTML = "";
+        for (const suggestion of suggestions) {
+          const item = document.createElement("li");
+          item.textContent = suggestion;
+          item.addEventListener("click", () => {
+            input.value = suggestion;
+            list.innerHTML = "";
+            // 추천어를 클릭했다는 로그를 남긴다 (docs/CONTRACT.md의 trackSearch 계약).
+            client
+              .trackSearch(input.value, suggestion, "suggestion_click")
+              .catch((err) => console.error("trackSearch 실패:", err));
+          });
+          list.appendChild(item);
+        }
+      }
+
+      input.addEventListener("input", async () => {
+        const prefix = input.value.trim();
+        if (!prefix) {
+          renderSuggestions([]);
+          return;
+        }
+
+        try {
+          const suggestions = await client.suggest(prefix);
+          renderSuggestions(suggestions);
+        } catch (err) {
+          if (err instanceof DebounceCancelledError) {
+            // 더 최신 키 입력이 이 호출을 대체함 — 무시해도 안전하다.
+            return;
+          }
+          console.error("suggest 실패:", err);
+        }
+      });
+
+      input.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" || !input.value.trim()) {
+          return;
+        }
+        // 추천어 클릭 없이 바로 검색을 확정한 경우의 로그 (final_search).
+        client
+          .trackSearch(input.value, input.value, "final_search")
+          .catch((err) => console.error("trackSearch 실패:", err));
+        list.innerHTML = "";
+      });
+    </script>
+  </body>
+</html>

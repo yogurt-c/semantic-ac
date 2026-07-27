@@ -135,6 +135,26 @@ describe("SemanticAutocompleteClient", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
+  it("defaults to a fetch implementation that survives being detached from `this` (regression: browsers throw 'Illegal invocation' when the native fetch is called as a bare method)", async () => {
+    const originalFetch = globalThis.fetch;
+    const brandedFetch = function (this: unknown) {
+      if (this !== globalThis) {
+        throw new TypeError("Illegal invocation");
+      }
+      return Promise.resolve(jsonResponse({ suggestions: ["노트북"] }));
+    };
+    globalThis.fetch = brandedFetch as typeof fetch;
+
+    try {
+      const client = new SemanticAutocompleteClient({ baseUrl: "https://api.example.com" });
+      const pending = client.suggest("노트");
+      await vi.advanceTimersByTimeAsync(150);
+      await expect(pending).resolves.toEqual(["노트북"]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("delegates trackSearch to POST {baseUrl}/track", async () => {
     const fetchImpl = vi.fn().mockResolvedValue({ ok: true, status: 202 } as Response);
     const client = new SemanticAutocompleteClient({ baseUrl: "https://api.example.com", fetchImpl });

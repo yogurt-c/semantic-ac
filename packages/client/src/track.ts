@@ -12,7 +12,8 @@ export interface TrackSearchDeps {
 }
 
 export async function trackSearch(deps: TrackSearchDeps, params: TrackSearchParams): Promise<void> {
-  const fetchImpl = deps.fetchImpl ?? fetch;
+  // See client.ts for why the default must be bound to globalThis.
+  const fetchImpl = deps.fetchImpl ?? fetch.bind(globalThis);
   const response = await fetchImpl(`${deps.baseUrl}/track`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

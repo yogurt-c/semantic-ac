@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 import fakeredis
 import pytest
 
+from ai_engine.events import SearchEvent
 from ai_engine.pipeline import run_batch
 
 
@@ -73,6 +75,30 @@ def test_run_batch_deduplicates_scored_and_generated_suggestions(
 
     for suggestions in written.values():
         assert len(suggestions) == len(set(suggestions))
+
+
+def test_run_batch_surfaces_cooccurring_term_from_a_different_prefix(
+    fake_embedding_model, fake_keyword_generator, tmp_path: Path
+):
+    """세션 co-occurrence 레이어 검증: "노"와 "맥"은 prefix도, 문자열도 겹치지 않지만
+    같은 세션에서 "노트북"과 "맥북"이 함께 selected됐다면 서로의 추천 목록에 나타나야 한다."""
+    now = datetime.now(timezone.utc)
+    events = [
+        SearchEvent(
+            prefix="노", selected="노트북", action="final_search", event_ts=now, session_id="s1"
+        ),
+        SearchEvent(
+            prefix="맥", selected="맥북", action="final_search", event_ts=now, session_id="s1"
+        ),
+    ]
+    redis_client = fakeredis.FakeStrictRedis(decode_responses=True)
+
+    written = run_batch(
+        events, fake_embedding_model, fake_keyword_generator, redis_client, tmp_path / "idx.faiss"
+    )
+
+    assert "맥북" in written["노"]
+    assert "노트북" in written["맥"]
 
 
 class _FailingKeywordGenerator:

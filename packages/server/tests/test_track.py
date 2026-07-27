@@ -11,7 +11,12 @@ from search_server.main import create_app
 def test_track_suggestion_click_returns_202_with_empty_body(client):
     response = client.post(
         "/track",
-        json={"prefix": "노트북", "selected": "가성비 노트북", "action": "suggestion_click"},
+        json={
+            "prefix": "노트북",
+            "selected": "가성비 노트북",
+            "action": "suggestion_click",
+            "sessionId": "session-1",
+        },
     )
 
     assert response.status_code == 202
@@ -21,7 +26,12 @@ def test_track_suggestion_click_returns_202_with_empty_body(client):
 def test_track_final_search_returns_202(client):
     response = client.post(
         "/track",
-        json={"prefix": "노트북", "selected": "노트북 추천", "action": "final_search"},
+        json={
+            "prefix": "노트북",
+            "selected": "노트북 추천",
+            "action": "final_search",
+            "sessionId": "session-1",
+        },
     )
 
     assert response.status_code == 202
@@ -32,27 +42,38 @@ def test_track_inserts_row_into_duckdb_with_server_set_event_ts(client, duckdb_c
 
     client.post(
         "/track",
-        json={"prefix": "노트북", "selected": "가성비 노트북", "action": "suggestion_click"},
+        json={
+            "prefix": "노트북",
+            "selected": "가성비 노트북",
+            "action": "suggestion_click",
+            "sessionId": "session-1",
+        },
     )
 
     after = datetime.now(UTC).replace(tzinfo=None)
 
     rows = duckdb_conn.execute(
-        "SELECT prefix, selected, action, event_ts FROM search_events"
+        "SELECT prefix, selected, action, event_ts, session_id FROM search_events"
     ).fetchall()
 
     assert len(rows) == 1
-    prefix, selected, action, event_ts = rows[0]
+    prefix, selected, action, event_ts, session_id = rows[0]
     assert prefix == "노트북"
     assert selected == "가성비 노트북"
     assert action == "suggestion_click"
+    assert session_id == "session-1"
     assert before - timedelta(seconds=1) <= event_ts <= after + timedelta(seconds=1)
 
 
 def test_track_rejects_invalid_action_with_422(client):
     response = client.post(
         "/track",
-        json={"prefix": "노트북", "selected": "노트북 추천", "action": "invalid_action"},
+        json={
+            "prefix": "노트북",
+            "selected": "노트북 추천",
+            "action": "invalid_action",
+            "sessionId": "session-1",
+        },
     )
 
     assert response.status_code == 422
@@ -61,7 +82,16 @@ def test_track_rejects_invalid_action_with_422(client):
 def test_track_rejects_missing_required_field_with_422(client):
     response = client.post(
         "/track",
-        json={"prefix": "노트북", "action": "final_search"},
+        json={"prefix": "노트북", "action": "final_search", "sessionId": "session-1"},
+    )
+
+    assert response.status_code == 422
+
+
+def test_track_rejects_missing_session_id_with_422(client):
+    response = client.post(
+        "/track",
+        json={"prefix": "노트북", "selected": "노트북 추천", "action": "final_search"},
     )
 
     assert response.status_code == 422
@@ -74,6 +104,7 @@ def test_track_ignores_client_supplied_timestamp(client, duckdb_conn):
             "prefix": "노트북",
             "selected": "노트북 추천",
             "action": "final_search",
+            "sessionId": "session-1",
             "timestamp": "2000-01-01T00:00:00Z",
         },
     )
@@ -86,7 +117,12 @@ def test_track_ignores_client_supplied_timestamp(client, duckdb_conn):
 def test_track_rejects_prefix_exceeding_max_length_with_422(client):
     response = client.post(
         "/track",
-        json={"prefix": "a" * 201, "selected": "노트북", "action": "final_search"},
+        json={
+            "prefix": "a" * 201,
+            "selected": "노트북",
+            "action": "final_search",
+            "sessionId": "session-1",
+        },
     )
 
     assert response.status_code == 422
@@ -95,7 +131,12 @@ def test_track_rejects_prefix_exceeding_max_length_with_422(client):
 def test_track_rejects_selected_exceeding_max_length_with_422(client):
     response = client.post(
         "/track",
-        json={"prefix": "노트북", "selected": "a" * 201, "action": "final_search"},
+        json={
+            "prefix": "노트북",
+            "selected": "a" * 201,
+            "action": "final_search",
+            "sessionId": "session-1",
+        },
     )
 
     assert response.status_code == 422
@@ -116,7 +157,12 @@ def test_concurrent_post_track_requests_all_succeed(tmp_path, monkeypatch):
     def send(i: int) -> None:
         response = real_client.post(
             "/track",
-            json={"prefix": f"p-{i}", "selected": f"s-{i}", "action": "final_search"},
+            json={
+                "prefix": f"p-{i}",
+                "selected": f"s-{i}",
+                "action": "final_search",
+                "sessionId": f"session-{i}",
+            },
         )
         with results_lock:
             results.append(response.status_code)

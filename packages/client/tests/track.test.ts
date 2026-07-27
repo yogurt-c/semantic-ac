@@ -11,7 +11,7 @@ describe("trackSearch", () => {
 
     await trackSearch(
       { baseUrl: "https://api.example.com", fetchImpl },
-      { prefix: "노트", selected: "노트북", action: "suggestion_click" },
+      { prefix: "노트", selected: "노트북", action: "suggestion_click", sessionId: "session-1" },
     );
 
     expect(fetchImpl).toHaveBeenCalledWith(
@@ -19,7 +19,12 @@ describe("trackSearch", () => {
       expect.objectContaining({
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prefix: "노트", selected: "노트북", action: "suggestion_click" }),
+        body: JSON.stringify({
+          prefix: "노트",
+          selected: "노트북",
+          action: "suggestion_click",
+          sessionId: "session-1",
+        }),
       }),
     );
   });
@@ -30,7 +35,7 @@ describe("trackSearch", () => {
     await expect(
       trackSearch(
         { baseUrl: "https://api.example.com", fetchImpl },
-        { prefix: "노트", selected: "노트북", action: "final_search" },
+        { prefix: "노트", selected: "노트북", action: "final_search", sessionId: "session-1" },
       ),
     ).resolves.toBeUndefined();
   });
@@ -41,7 +46,7 @@ describe("trackSearch", () => {
     await expect(
       trackSearch(
         { baseUrl: "https://api.example.com", fetchImpl },
-        { prefix: "노트", selected: "노트북", action: "suggestion_click" },
+        { prefix: "노트", selected: "노트북", action: "suggestion_click", sessionId: "session-1" },
       ),
     ).rejects.toThrow();
   });
@@ -53,7 +58,7 @@ describe("trackSearch", () => {
     await expect(
       trackSearch(
         { baseUrl: "https://api.example.com", fetchImpl },
-        { prefix: "노트", selected: "노트북", action: "suggestion_click" },
+        { prefix: "노트", selected: "노트북", action: "suggestion_click", sessionId: "session-1" },
       ),
     ).rejects.toThrow("network down");
   });
@@ -72,7 +77,7 @@ describe("trackSearch", () => {
       await expect(
         trackSearch(
           { baseUrl: "https://api.example.com" },
-          { prefix: "노트", selected: "노트북", action: "suggestion_click" },
+          { prefix: "노트", selected: "노트북", action: "suggestion_click", sessionId: "session-1" },
         ),
       ).resolves.toBeUndefined();
     } finally {

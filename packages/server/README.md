@@ -50,7 +50,7 @@ src/search_server/
 ## Endpoints
 
 - `GET /suggest?q={prefix}` — Redis 키 `sugg:{prefix}` 조회
-- `POST /track` — `search_events(prefix, selected, action, event_ts)`를 DuckDB에 적재
+- `POST /track` — `search_events(prefix, selected, action, event_ts, session_id)`를 DuckDB에 적재
 
 ## License
 

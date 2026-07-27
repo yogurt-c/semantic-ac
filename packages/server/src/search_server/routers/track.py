@@ -15,5 +15,5 @@ def track(
     conn: duckdb.DuckDBPyConnection = Depends(get_db_connection),
 ) -> Response:
     event_ts = datetime.now(UTC).replace(tzinfo=None)
-    insert_event(conn, event.prefix, event.selected, event.action, event_ts)
+    insert_event(conn, event.prefix, event.selected, event.action, event_ts, event.session_id)
     return Response(status_code=202)

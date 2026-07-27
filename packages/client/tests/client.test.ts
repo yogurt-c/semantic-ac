@@ -157,7 +157,11 @@ describe("SemanticAutocompleteClient", () => {
 
   it("delegates trackSearch to POST {baseUrl}/track", async () => {
     const fetchImpl = vi.fn().mockResolvedValue({ ok: true, status: 202 } as Response);
-    const client = new SemanticAutocompleteClient({ baseUrl: "https://api.example.com", fetchImpl });
+    const client = new SemanticAutocompleteClient({
+      baseUrl: "https://api.example.com",
+      fetchImpl,
+      sessionId: "session-1",
+    });
 
     await client.trackSearch("노트", "노트북", "suggestion_click");
 
@@ -166,8 +170,42 @@ describe("SemanticAutocompleteClient", () => {
       expect.objectContaining({
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prefix: "노트", selected: "노트북", action: "suggestion_click" }),
+        body: JSON.stringify({
+          prefix: "노트",
+          selected: "노트북",
+          action: "suggestion_click",
+          sessionId: "session-1",
+        }),
       }),
     );
+  });
+
+  it("auto-generates a sessionId and reuses it across multiple trackSearch calls", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true, status: 202 } as Response);
+    const client = new SemanticAutocompleteClient({ baseUrl: "https://api.example.com", fetchImpl });
+
+    await client.trackSearch("노트", "노트북", "suggestion_click");
+    await client.trackSearch("맥북", "맥북 프로", "final_search");
+
+    const firstBody = JSON.parse(fetchImpl.mock.calls[0]?.[1]?.body as string);
+    const secondBody = JSON.parse(fetchImpl.mock.calls[1]?.[1]?.body as string);
+
+    expect(firstBody.sessionId).toEqual(expect.any(String));
+    expect(firstBody.sessionId.length).toBeGreaterThan(0);
+    expect(secondBody.sessionId).toBe(firstBody.sessionId);
+  });
+
+  it("generates a different sessionId per client instance", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true, status: 202 } as Response);
+    const clientA = new SemanticAutocompleteClient({ baseUrl: "https://api.example.com", fetchImpl });
+    const clientB = new SemanticAutocompleteClient({ baseUrl: "https://api.example.com", fetchImpl });
+
+    await clientA.trackSearch("노트", "노트북", "suggestion_click");
+    await clientB.trackSearch("노트", "노트북", "suggestion_click");
+
+    const bodyA = JSON.parse(fetchImpl.mock.calls[0]?.[1]?.body as string);
+    const bodyB = JSON.parse(fetchImpl.mock.calls[1]?.[1]?.body as string);
+
+    expect(bodyA.sessionId).not.toBe(bodyB.sessionId);
   });
 });

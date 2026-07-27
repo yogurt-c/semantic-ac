@@ -35,17 +35,22 @@ Content-Type: application/json
 {
   "prefix": "노트북",
   "selected": "가성비 노트북",
-  "action": "suggestion_click"
+  "action": "suggestion_click",
+  "sessionId": "b3f1c2a0-..."
 }
 ```
 
 - `prefix`: string, 필수. 사용자가 입력한 미완성 검색어.
 - `selected`: string, 필수. 클릭된 추천어 또는 최종 확정 검색어.
 - `action`: `"suggestion_click" | "final_search"`, 필수.
+- `sessionId`: string, 필수. 클라이언트 SDK가 인스턴스 생성 시 1회 발급(`crypto.randomUUID()`
+  또는 폴백)해 그 인스턴스의 모든 `trackSearch()` 호출에 동일하게 실어 보낸다. AI 배치 엔진이
+  "같은 세션에서 함께 selected된 키워드"를 묶어 연관 검색어를 학습하는 유일한 키이므로,
+  임의로 비우거나 요청마다 새로 생성하면 안 된다.
 - `timestamp`: 클라이언트는 보내지 않음. 서버가 수신 시각 기준으로 채움.
 - 응답 202, 바디 없음. Fire-and-forget — 클라이언트는 응답을 기다리되 결과와 무관하게 UI를 막지 않는다.
-- 서버 처리: DuckDB/SQLite `search_events(prefix, selected, action, event_ts)` 테이블에 적재. 메인
-  서비스 DB와 완전히 분리된 파일 DB 사용.
+- 서버 처리: DuckDB/SQLite `search_events(prefix, selected, action, event_ts, session_id)` 테이블에
+  적재. 메인 서비스 DB와 완전히 분리된 파일 DB 사용.
 
 ## 3. Redis 키 포맷 (트랙 C가 쓰기 / 트랙 B가 읽기)
 

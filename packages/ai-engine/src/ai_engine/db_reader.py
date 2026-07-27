@@ -22,7 +22,7 @@ def fetch_search_events(db_path: str, *, table: str = DEFAULT_TABLE) -> list[Sea
     connection = duckdb.connect(db_path, read_only=True)
     try:
         rows = connection.execute(
-            f"SELECT prefix, selected, action, event_ts FROM {table}"  # noqa: S608 - table validated above
+            f"SELECT prefix, selected, action, event_ts, session_id FROM {table}"  # noqa: S608 - table validated above
         ).fetchall()
     finally:
         connection.close()
@@ -33,8 +33,9 @@ def fetch_search_events(db_path: str, *, table: str = DEFAULT_TABLE) -> list[Sea
             selected=selected,
             action=action,
             event_ts=_as_utc(event_ts),
+            session_id=session_id,
         )
-        for prefix, selected, action, event_ts in rows
+        for prefix, selected, action, event_ts, session_id in rows
     ]
 
 

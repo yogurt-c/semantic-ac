@@ -4,6 +4,7 @@ export interface TrackSearchParams {
   prefix: string;
   selected: string;
   action: TrackAction;
+  sessionId: string;
 }
 
 export interface TrackSearchDeps {

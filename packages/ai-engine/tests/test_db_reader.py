@@ -15,15 +15,15 @@ def duckdb_path(tmp_path: Path) -> str:
     connection = duckdb.connect(db_path)
     connection.execute(
         "CREATE TABLE search_events "
-        "(prefix VARCHAR, selected VARCHAR, action VARCHAR, event_ts TIMESTAMP)"
+        "(prefix VARCHAR, selected VARCHAR, action VARCHAR, event_ts TIMESTAMP, session_id VARCHAR)"
     )
     connection.execute(
-        "INSERT INTO search_events VALUES (?, ?, ?, ?)",
-        ["노트북", "노트북 추천", "suggestion_click", datetime(2026, 7, 27, 10, 0, 0)],
+        "INSERT INTO search_events VALUES (?, ?, ?, ?, ?)",
+        ["노트북", "노트북 추천", "suggestion_click", datetime(2026, 7, 27, 10, 0, 0), "session-1"],
     )
     connection.execute(
-        "INSERT INTO search_events VALUES (?, ?, ?, ?)",
-        ["키보드", "기계식 키보드", "final_search", datetime(2026, 7, 27, 11, 0, 0)],
+        "INSERT INTO search_events VALUES (?, ?, ?, ?, ?)",
+        ["키보드", "기계식 키보드", "final_search", datetime(2026, 7, 27, 11, 0, 0), "session-2"],
     )
     connection.close()
     return db_path
@@ -36,6 +36,7 @@ def test_fetch_search_events_reads_all_rows(duckdb_path: str):
     assert events[0].prefix == "노트북"
     assert events[0].selected == "노트북 추천"
     assert events[0].action == "suggestion_click"
+    assert events[0].session_id == "session-1"
 
 
 def test_fetch_search_events_normalizes_timestamps_to_utc(duckdb_path: str):
@@ -53,7 +54,7 @@ def test_fetch_search_events_returns_empty_list_for_empty_table(tmp_path: Path):
     connection = duckdb.connect(db_path)
     connection.execute(
         "CREATE TABLE search_events "
-        "(prefix VARCHAR, selected VARCHAR, action VARCHAR, event_ts TIMESTAMP)"
+        "(prefix VARCHAR, selected VARCHAR, action VARCHAR, event_ts TIMESTAMP, session_id VARCHAR)"
     )
     connection.close()
 

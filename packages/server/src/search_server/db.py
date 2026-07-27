@@ -12,7 +12,8 @@ CREATE TABLE IF NOT EXISTS search_events (
     prefix VARCHAR,
     selected VARCHAR,
     action VARCHAR,
-    event_ts TIMESTAMP
+    event_ts TIMESTAMP,
+    session_id VARCHAR
 )
 """
 
@@ -52,8 +53,10 @@ def insert_event(
     selected: str,
     action: str,
     event_ts: datetime,
+    session_id: str,
 ) -> None:
     conn.execute(
-        "INSERT INTO search_events (prefix, selected, action, event_ts) VALUES (?, ?, ?, ?)",
-        [prefix, selected, action, event_ts],
+        "INSERT INTO search_events (prefix, selected, action, event_ts, session_id) "
+        "VALUES (?, ?, ?, ?, ?)",
+        [prefix, selected, action, event_ts, session_id],
     )

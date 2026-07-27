@@ -79,7 +79,7 @@ docker compose up -d --build --wait
 ```bash
 curl -X POST http://localhost:8000/track \
   -H 'Content-Type: application/json' \
-  -d '{"prefix": "노트북", "selected": "가성비 노트북", "action": "final_search"}'
+  -d '{"prefix": "노트북", "selected": "가성비 노트북", "action": "final_search", "sessionId": "demo-session-1"}'
 
 # ai-worker가 배치를 1회 이상 실행한 뒤
 curl 'http://localhost:8000/suggest?q=노트북'

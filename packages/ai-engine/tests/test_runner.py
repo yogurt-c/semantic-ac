@@ -15,7 +15,8 @@ CREATE TABLE search_events (
     prefix VARCHAR,
     selected VARCHAR,
     action VARCHAR,
-    event_ts TIMESTAMP
+    event_ts TIMESTAMP,
+    session_id VARCHAR
 )
 """
 
@@ -25,12 +26,12 @@ def _seed_events_db(path: Path) -> None:
     try:
         conn.execute(_CREATE_TABLE_SQL)
         conn.execute(
-            "INSERT INTO search_events VALUES (?, ?, ?, ?)",
-            ["노트북", "노트북 추천", "suggestion_click", datetime.now(timezone.utc)],
+            "INSERT INTO search_events VALUES (?, ?, ?, ?, ?)",
+            ["노트북", "노트북 추천", "suggestion_click", datetime.now(timezone.utc), "session-1"],
         )
         conn.execute(
-            "INSERT INTO search_events VALUES (?, ?, ?, ?)",
-            ["노트북", "노트북 추천", "suggestion_click", datetime.now(timezone.utc)],
+            "INSERT INTO search_events VALUES (?, ?, ?, ?, ?)",
+            ["노트북", "노트북 추천", "suggestion_click", datetime.now(timezone.utc), "session-2"],
         )
     finally:
         conn.close()

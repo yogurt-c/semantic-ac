@@ -1,11 +1,30 @@
 # ai-engine
 
 비동기 AI 배치 엔진. [`search-server`](../server)가 DuckDB `search_events` 테이블에
-적재한 검색 로그를 읽어, 빈도+최신성 기반으로 키워드를 스코어링하고, 임베딩/Faiss로
+적재한 검색 로그를 읽어, 빈도+최신성 기반으로 키워드를 스코어링하고, 세션
+co-occurrence로 실제 사용자 행동에서 연관 검색어를 학습하고, 임베딩/Faiss로
 의미적 연관 키워드를 찾아, 오타/문맥 연관 키워드를 보강한 뒤 Redis에 자동완성
 사전(`sugg:{prefix}`)을 원자적으로 기록하는 배치 파이프라인이다. 상시 실행 서버가
 아니라 주기 실행되는 원샷 작업으로 설계되어 있다 (스키마는
 [`../../docs/CONTRACT.md`](../../docs/CONTRACT.md) 참고).
+
+## 추천 검색어가 만들어지는 방식
+
+같은 prefix 안에서의 빈도/최신성만으로는 "노트북"을 검색하는 사람에게 "맥북"
+같이 문자열이 겹치지 않는 진짜 연관 검색어를 추천할 수 없다. 이를 위해
+`cooccurrence.py`가 `session_id`로 묶인 검색 로그에서 같은 세션에 함께
+selected된 키워드 쌍을 지수 감쇠 가중치로 누적해 학습한다 — 최근에, 더 많은
+세션에서 함께 검색될수록 연관 점수가 강해지고, 오래된 관계는 자연히 약해진다.
+`session_id`는 클라이언트 SDK가 인스턴스 생성 시 1회 발급해 모든 `trackSearch()`
+호출에 실어 보낸다 (`docs/CONTRACT.md` 섹션 2).
+
+```
+score(A, B) = Σ_세션(A,B 함께 selected) 0.5 ^ (age_hours / half_life_hours)
+```
+
+`pipeline.run_batch`는 prefix별 상위 완성어(`score_keywords`)를 seed로 삼아 이
+co-occurrence 그래프에서 연관 키워드를 끌어온 뒤, 임베딩/Faiss 의미 유사도와
+LLM 생성 오타 후보를 함께 병합한다.
 
 ## 기술 스택
 
@@ -17,14 +36,15 @@
 
 ```
 src/ai_engine/
-  events.py             SearchEvent (search_events 레코드 1건)
+  events.py             SearchEvent (search_events 레코드 1건, session_id 포함)
   db_reader.py           DuckDB search_events 테이블 읽기 (read-only)
   scoring.py             빈도+최신성 스코어링 순수 함수 (DB 비의존)
+  cooccurrence.py        세션 co-occurrence 기반 연관 검색어 학습 (DB 비의존)
   embeddings.py          EmbeddingModel Protocol + E5SmallEmbeddingModel(실제 통합 지점)
   vector_index.py        Faiss 인덱스 빌드 / 원자적 저장(os.replace) / 최근접 검색
   keyword_generator.py   KeywordGenerator Protocol (오타/문맥 연관 키워드 생성)
   redis_writer.py        sugg:{prefix} 원자적 SET (docs/CONTRACT.md 섹션 3)
-  pipeline.py            스코어링 -> 임베딩/Faiss -> KeywordGenerator -> Redis 조립
+  pipeline.py            스코어링 -> co-occurrence -> 임베딩/Faiss -> KeywordGenerator -> Redis 조립
   stub_components.py     HashingEmbeddingModel/NoopKeywordGenerator — 실모델 연결
                          전 docker-compose 기본값 placeholder (실제 추천 품질 없음)
   runner.py              env var(REDIS_URL/DUCKDB_PATH/INDEX_PATH/BATCH_INTERVAL_SECONDS)

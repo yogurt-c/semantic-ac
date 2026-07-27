@@ -33,7 +33,12 @@ def test_db_connection_closes_after_dependency_teardown(tmp_path, monkeypatch):
 
     with contextmanager(get_db_connection)() as conn:
         insert_event(
-            conn, "노트북", "노트북 추천", "final_search", datetime.now(UTC).replace(tzinfo=None)
+            conn,
+            "노트북",
+            "노트북 추천",
+            "final_search",
+            datetime.now(UTC).replace(tzinfo=None),
+            "session-1",
         )
 
     reader = duckdb.connect(str(db_path), read_only=True)
@@ -64,6 +69,7 @@ def test_concurrent_inserts_via_get_db_connection_do_not_error(tmp_path, monkeyp
                     f"selected-{i}",
                     "final_search",
                     datetime.now(UTC).replace(tzinfo=None),
+                    f"session-{i}",
                 )
         except Exception as exc:  # noqa: BLE001
             with errors_lock:

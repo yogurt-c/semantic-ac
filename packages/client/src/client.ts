@@ -1,6 +1,7 @@
 import { PrefixCache } from "./cache.js";
 import { debounce } from "./debounce.js";
 import { DebounceCancelledError } from "./errors.js";
+import { createSessionId } from "./session-id.js";
 import { trackSearch, type TrackAction } from "./track.js";
 
 const DEFAULT_DEBOUNCE_MS = 150;
@@ -10,6 +11,12 @@ export interface SemanticAutocompleteClientOptions {
   debounceMs?: number;
   cacheMaxEntries?: number;
   fetchImpl?: typeof fetch;
+  /**
+   * AI 배치 엔진의 co-occurrence 학습(같은 세션에서 함께 selected된 키워드 묶기)이
+   * 쓰는 상관키. 생략하면 클라이언트 인스턴스당 1회 자동 발급되어 이 인스턴스의
+   * 모든 trackSearch() 호출에 동일하게 실린다. 서버 세션 등 직접 관리하고 싶을 때만 넘긴다.
+   */
+  sessionId?: string;
 }
 
 interface SuggestResponseBody {
@@ -29,6 +36,7 @@ export class SemanticAutocompleteClient {
   private readonly fetchImpl: typeof fetch;
   private readonly cache: PrefixCache<string[]>;
   private readonly debouncedFetch: (prefix: string) => void;
+  private readonly sessionId: string;
 
   private pendingResolve: ((suggestions: string[]) => void) | undefined;
   private pendingReject: ((reason: unknown) => void) | undefined;
@@ -39,6 +47,7 @@ export class SemanticAutocompleteClient {
     // detaches it from `window` and throws `TypeError: Illegal invocation`. Bind the
     // default to globalThis so it survives being stored as a method.
     this.fetchImpl = options.fetchImpl ?? fetch.bind(globalThis);
+    this.sessionId = options.sessionId ?? createSessionId();
     this.cache = new PrefixCache<string[]>(options.cacheMaxEntries);
     this.debouncedFetch = debounce((prefix: string) => {
       void this.executeFetch(prefix);
@@ -77,7 +86,10 @@ export class SemanticAutocompleteClient {
    * otherwise a failure surfaces as an unhandled promise rejection.
    */
   async trackSearch(prefix: string, selected: string, action: TrackAction): Promise<void> {
-    await trackSearch({ baseUrl: this.baseUrl, fetchImpl: this.fetchImpl }, { prefix, selected, action });
+    await trackSearch(
+      { baseUrl: this.baseUrl, fetchImpl: this.fetchImpl },
+      { prefix, selected, action, sessionId: this.sessionId },
+    );
   }
 
   private cancelPending(): void {

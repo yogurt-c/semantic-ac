@@ -1,0 +1,17 @@
+[
+  {"prefix": "노트붘", "correct": "노트북", "type": "typo"},
+  {"prefix": "스마트폰", "correct": "핸드폰", "type": "synonym"},
+  {"prefix": "냉장고", "correct": "냉장고", "type": "synonym"},
+  {"prefix": "키보ㄷ", "correct": "키보드", "type": "typo"},
+  {"prefix": "마우스", "correct": "무선마우스", "type": "synonym"},
+  {"prefix": "청소기", "correct": "진공청소기", "type": "synonym"},
+  {"prefix": "이어폰", "correct": "무선이어폰", "type": "synonym"},
+  {"prefix": "모니터", "correct": "모니터", "type": "typo"},
+  {"prefix": "세탁기", "correct": "드럼세탁기", "type": "synonym"},
+  {"prefix": "에어컨", "correct": "에어콘", "type": "typo"},
+  {"prefix": "가습기", "correct": "가습기", "type": "typo"},
+  {"prefix": "공기청정기", "correct": "공기청정기", "type": "typo"},
+  {"prefix": "텔레비전", "correct": "티비", "type": "synonym"},
+  {"prefix": "프린터", "correct": "프린트기", "type": "synonym"},
+  {"prefix": "충전기", "correct": "충전케이블", "type": "synonym"}
+]

@@ -1,0 +1,35 @@
+# Docs (local-only)
+PRD.md
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# JetBrains (IntelliJ / PyCharm / WebStorm / CLion 등)
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+.idea_modules/
+cmake-build-*/
+atlassian-ide-plugin.xml
+com_crashlytics_export_strings.xml
+crashlytics.properties
+crashlytics-build.properties
+fabric.properties

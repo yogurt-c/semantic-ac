@@ -26,6 +26,31 @@ score(A, B) = Σ_세션(A,B 함께 selected) 0.5 ^ (age_hours / half_life_hours)
 co-occurrence 그래프에서 연관 키워드를 끌어온 뒤, 임베딩/Faiss 의미 유사도와
 LLM 생성 오타 후보를 함께 병합한다.
 
+### 예시로 보는 최종 결과
+
+"노트북"과 "맥북"이 같은 세션에서 함께 selected된 로그가 충분히 쌓였다고 하면,
+prefix `"노"`에 대해 `sugg:노`가 다음과 같은 순서로 채워진다:
+
+```json
+["노트북", "노트북 추천", "맥북", "labtop"]
+```
+
+각 항목이 어느 레이어에서 온 것인지 순서대로:
+
+1. `"노트북"`, `"노트북 추천"` — **prefix 랭킹**(`score_keywords`): `"노"`로
+   시작한 사람들이 과거에 자주/최근에 selected한 완성어. 로그가 조금만 쌓여도
+   채워진다.
+2. `"맥북"` — **co-occurrence**(`cooccurrence.py`): `"노트북"`과 같은 세션에서
+   자주 함께 selected된 키워드. 문자열은 전혀 안 겹치지만 실제 행동 데이터로
+   연결된 것이라, 세션 로그가 어느 정도 쌓여야 나타나기 시작한다.
+3. `"labtop"` — **KeywordGenerator**(LLM): Faiss로 찾은 의미적 인접 키워드를
+   context로 받아 생성한 오타 후보. 현재 기본값인 `NoopKeywordGenerator`는
+   항상 빈 값을 반환하므로 실모델을 연결해야 실제로 채워진다([로드맵](#로드맵)).
+
+`_merge_unique`가 이 순서(prefix 랭킹 → co-occurrence → LLM 생성)대로 병합하며
+중복을 제거하고, 최종적으로 `top_n`개(기본 10개, `SUGGESTION_TOP_N`로 조정)로
+자른다.
+
 ## 기술 스택
 
 - 임베딩 모델: `intfloat/multilingual-e5-small`
@@ -75,6 +100,23 @@ run_batch(events, embedding_model, keyword_generator, redis_client, "path/to/ind
 docker-compose 환경에서는 `runner.py`가 기본값으로 `stub_components`의
 placeholder(`HashingEmbeddingModel`, `NoopKeywordGenerator`)를 주입해 파이프라인
 구조만 검증한다. 실제 임베딩/sLLM 모델을 연결하려면 아래 로드맵을 참고한다.
+
+## 환경 변수
+
+`runner.py`(배치 실행 진입점)가 읽는 환경 변수. docker-compose에서는 `ai-worker`
+서비스의 `environment:`에 설정한다(`docker-compose.yml` 참고). 코드를 고치지
+않고도 추천 생성 방식을 자사 트래픽에 맞게 조정할 수 있다.
+
+| 변수 | 기본값 | 설명 |
+|---|---|---|
+| `REDIS_URL` | `redis://localhost:6379/0` | 추천 결과를 쓸 Redis |
+| `DUCKDB_PATH` | `data/search_events.duckdb` | 읽어올 검색 로그 DB(`search-server`와 같은 파일 공유) |
+| `INDEX_PATH` | `data/index.faiss` | Faiss 인덱스 파일 경로 |
+| `BATCH_INTERVAL_SECONDS` | `60` | 배치 반복 주기(초). `--once`와 함께 쓰지 않음 |
+| `SUGGESTION_TOP_N` | `10` | prefix당 최종 추천 개수 |
+| `FAISS_CONTEXT_SIZE` | `5` | `KeywordGenerator`에 넘길 Faiss 최근접 키워드 개수 |
+| `COOCCURRENCE_HALF_LIFE_HOURS` | `168`(1주) | 연관 검색어(co-occurrence) 점수의 감쇠 반감기. 짧게 하면 최신 트렌드에 더 민감해지지만 데이터가 적을 때는 관계가 빨리 사라진다 |
+| `COOCCURRENCE_SEED_SIZE` | `3` | prefix당 co-occurrence 조회에 seed로 쓸 상위 완성어 개수 |
 
 ## 로드맵
 

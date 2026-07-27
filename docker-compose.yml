@@ -46,6 +46,12 @@ services:
       DUCKDB_PATH: /data/search_events.duckdb
       INDEX_PATH: /data/faiss/index.faiss
       BATCH_INTERVAL_SECONDS: "60"
+      # 추천 생성 방식 튜닝(전부 선택, 미설정 시 코드 기본값 사용). 상세 설명은
+      # packages/ai-engine/README.md의 "환경 변수" 섹션 참고.
+      # SUGGESTION_TOP_N: "10"
+      # FAISS_CONTEXT_SIZE: "5"
+      # COOCCURRENCE_HALF_LIFE_HOURS: "168"
+      # COOCCURRENCE_SEED_SIZE: "3"
     volumes:
       - duckdb-data:/data
     depends_on:

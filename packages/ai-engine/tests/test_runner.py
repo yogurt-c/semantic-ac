@@ -116,6 +116,68 @@ def test_main_loop_swallows_exception_and_retries(monkeypatch, caplog: pytest.Lo
     assert any("batch cycle failed" in record.message for record in caplog.records)
 
 
+def test_main_once_passes_tuning_env_vars_through_to_run_batch(monkeypatch, tmp_path: Path):
+    duckdb_path = tmp_path / "events.duckdb"
+    _seed_events_db(duckdb_path)
+    monkeypatch.setenv("DUCKDB_PATH", str(duckdb_path))
+    monkeypatch.setenv("INDEX_PATH", str(tmp_path / "index.faiss"))
+    monkeypatch.setenv("SUGGESTION_TOP_N", "3")
+    monkeypatch.setenv("FAISS_CONTEXT_SIZE", "2")
+    monkeypatch.setenv("COOCCURRENCE_HALF_LIFE_HOURS", "12")
+    monkeypatch.setenv("COOCCURRENCE_SEED_SIZE", "1")
+
+    captured_kwargs: dict = {}
+
+    def _fake_run_batch(events, embedding_model, keyword_generator, redis_client, index_path, **kwargs):
+        captured_kwargs.update(kwargs)
+        return {}
+
+    monkeypatch.setattr(runner_module, "run_batch", _fake_run_batch)
+    monkeypatch.setattr(
+        runner_module.redis.Redis,
+        "from_url",
+        staticmethod(lambda *args, **kwargs: fakeredis.FakeStrictRedis(decode_responses=True)),
+    )
+
+    runner_module.main(["--once"])
+
+    assert captured_kwargs == {
+        "top_n": 3,
+        "context_size": 2,
+        "cooccurrence_half_life_hours": 12.0,
+        "cooccurrence_seed_size": 1,
+    }
+
+
+def test_main_once_uses_pipeline_defaults_when_tuning_env_vars_are_unset(monkeypatch, tmp_path: Path):
+    duckdb_path = tmp_path / "events.duckdb"
+    _seed_events_db(duckdb_path)
+    monkeypatch.setenv("DUCKDB_PATH", str(duckdb_path))
+    monkeypatch.setenv("INDEX_PATH", str(tmp_path / "index.faiss"))
+
+    captured_kwargs: dict = {}
+
+    def _fake_run_batch(events, embedding_model, keyword_generator, redis_client, index_path, **kwargs):
+        captured_kwargs.update(kwargs)
+        return {}
+
+    monkeypatch.setattr(runner_module, "run_batch", _fake_run_batch)
+    monkeypatch.setattr(
+        runner_module.redis.Redis,
+        "from_url",
+        staticmethod(lambda *args, **kwargs: fakeredis.FakeStrictRedis(decode_responses=True)),
+    )
+
+    runner_module.main(["--once"])
+
+    assert captured_kwargs == {
+        "top_n": runner_module.DEFAULT_TOP_N,
+        "context_size": runner_module.DEFAULT_CONTEXT_SIZE,
+        "cooccurrence_half_life_hours": runner_module.DEFAULT_COOCCURRENCE_HALF_LIFE_HOURS,
+        "cooccurrence_seed_size": runner_module.DEFAULT_COOCCURRENCE_SEED_SIZE,
+    }
+
+
 def test_main_uses_batch_interval_seconds_env_var(monkeypatch):
     captured_interval: list[int] = []
 

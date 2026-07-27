@@ -1,7 +1,7 @@
-import { PrefixCache } from "./cache";
-import { debounce } from "./debounce";
-import { DebounceCancelledError } from "./errors";
-import { trackSearch, type TrackAction } from "./track";
+import { PrefixCache } from "./cache.js";
+import { debounce } from "./debounce.js";
+import { DebounceCancelledError } from "./errors.js";
+import { trackSearch, type TrackAction } from "./track.js";
 
 const DEFAULT_DEBOUNCE_MS = 150;
 

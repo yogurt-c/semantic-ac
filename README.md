@@ -14,9 +14,21 @@ semantic-ac는 추천 사전을 오프라인 배치에서 sLLM과 임베딩으�
 - **실시간 서빙 API** (FastAPI + Redis): 자동완성 O(1) 서빙, 검색 로그 수집(DuckDB/SQLite)
 - **비동기 AI 배치 엔진** (Python + Llama.cpp): 로그 스코어링, 임베딩 기반 유사어 매칭, sLLM 기반 오타/문맥 사전 컴파일
 
+## 실행 (docker-compose)
+
+```bash
+docker compose up -d --build --wait
+```
+
+- `redis`, `search-server`(FastAPI, :8000), `ai-worker`(배치) 3개 서비스가 뜬다.
+- `ai-worker`는 실모델(E5/Qwen) 연결 전까지 `stub_components` placeholder로 배치
+  파이프라인 구조만 검증한다 (`packages/ai-engine/README.md` 참고).
+- 전체 트랙(SDK → API → Redis → 배치) E2E 검증: `./scripts/e2e.sh`
+
 ## 상태
 
-초기 셋업 단계입니다.
+Client SDK / FastAPI 서버 / AI 배치 엔진 3개 트랙과 docker-compose 통합, E2E
+테스트까지 구축된 상태입니다. 남은 작업은 [`TODO.md`](TODO.md) 참고.
 
 ## License
 

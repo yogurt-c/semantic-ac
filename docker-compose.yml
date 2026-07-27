@@ -1,0 +1,58 @@
+services:
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  search-server:
+    build:
+      context: ./packages/server
+    ports:
+      - "8000:8000"
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      DUCKDB_PATH: /data/search_events.duckdb
+    volumes:
+      - duckdb-data:/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/suggest?q=healthcheck')",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # 트랙 C: 상시 서빙 경로와 리소스 경합 없이 주기적으로 실행되는 원샷 배치 워커
+  # (TODO.md 0번 결정). 실모델(E5/Qwen) 연결 전까지는 HashingEmbeddingModel/
+  # NoopKeywordGenerator placeholder로 파이프라인 구조만 검증한다.
+  ai-worker:
+    build:
+      context: ./packages/ai-engine
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      DUCKDB_PATH: /data/search_events.duckdb
+      INDEX_PATH: /data/faiss/index.faiss
+      BATCH_INTERVAL_SECONDS: "60"
+    volumes:
+      - duckdb-data:/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1g
+
+volumes:
+  duckdb-data:

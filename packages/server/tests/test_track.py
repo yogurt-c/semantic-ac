@@ -1,10 +1,10 @@
 import threading
 from datetime import datetime, timedelta, UTC
 
+import duckdb
 from fastapi.testclient import TestClient
 
 from search_server.config import get_settings
-from search_server.db import _connection
 from search_server.main import create_app
 
 
@@ -102,9 +102,9 @@ def test_track_rejects_selected_exceeding_max_length_with_422(client):
 
 
 def test_concurrent_post_track_requests_all_succeed(tmp_path, monkeypatch):
-    monkeypatch.setenv("DUCKDB_PATH", str(tmp_path / "http_concurrent.duckdb"))
+    db_path = tmp_path / "http_concurrent.duckdb"
+    monkeypatch.setenv("DUCKDB_PATH", str(db_path))
     get_settings.cache_clear()
-    _connection.cache_clear()
 
     app = create_app()
     real_client = TestClient(app)
@@ -129,9 +129,11 @@ def test_concurrent_post_track_requests_all_succeed(tmp_path, monkeypatch):
 
     assert results == [202] * request_count
 
-    conn = _connection(str(tmp_path / "http_concurrent.duckdb"))
-    count = conn.execute("SELECT COUNT(*) FROM search_events").fetchone()[0]
-    assert count == request_count
+    conn = duckdb.connect(str(db_path), read_only=True)
+    try:
+        count = conn.execute("SELECT COUNT(*) FROM search_events").fetchone()[0]
+        assert count == request_count
+    finally:
+        conn.close()
 
     get_settings.cache_clear()
-    _connection.cache_clear()

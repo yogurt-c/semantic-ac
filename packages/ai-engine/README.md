@@ -24,6 +24,11 @@ src/ai_engine/
   keyword_generator.py   KeywordGenerator Protocol (오타/문맥 연관 키워드 생성)
   redis_writer.py        sugg:{prefix} 원자적 SET (docs/CONTRACT.md 섹션 3)
   pipeline.py            스코어링 -> 임베딩/Faiss -> KeywordGenerator -> Redis 조립
+  stub_components.py     HashingEmbeddingModel/NoopKeywordGenerator — 실모델 연결
+                          전 docker-compose 기본값 placeholder (실제 추천 품질 없음)
+  runner.py               env var(REDIS_URL/DUCKDB_PATH/INDEX_PATH/BATCH_INTERVAL_SECONDS)
+                          기반 배치 실행 진입점. `--once`(1회 실행, 예외 전파) /
+                          기본(반복 실행, 예외 로깅 후 다음 주기 재시도) 두 모드 지원
 tests/
   conftest.py            FakeEmbeddingModel, FakeKeywordGenerator 등 테스트 더블
   fixtures/typo_synonym_pairs.json   한국어 오타/유의어 평가 샘플 15개
@@ -91,8 +96,13 @@ class QwenKeywordGenerator:
 - 실제 다운로드/추론 연결 시 `tests/fixtures/typo_synonym_pairs.json`을 활용해
   생성 품질 정성 검수를 진행할 것 (이번 범위에서는 구조적 유효성만 검증함).
 
-### 3. 통합/운영
+### 3. 통합/운영 (완료 — `TODO.md` 3번)
 
-- `docker-compose.yml`에 AI Worker 서비스로 편입 (`TODO.md` 3번)
-- 스케줄러(APScheduler/cron)로 주기 실행 연결
-- 저사양 CPU/RAM 환경에서 4-bit 양자화 모델 구동 스트레스 테스트
+- `docker-compose.yml`에 `ai-worker` 서비스로 편입 완료 (`Dockerfile`, `runner.py`).
+  기본값은 `stub_components`의 placeholder이며, 실모델 연결 시 `runner.py`의
+  `HashingEmbeddingModel()`/`NoopKeywordGenerator()` 자리를 `E5SmallEmbeddingModel`/
+  `QwenKeywordGenerator`로 교체하면 된다.
+- 주기 실행은 `runner.py`의 단순 sleep 루프로 대체 구현(APScheduler/cron 의존성 추가
+  없이 MVP 범위 충족). 테이블 미존재/배치 실패 시 로깅 후 다음 주기 재시도.
+- 남은 작업: 저사양 CPU/RAM 환경에서 4-bit 양자화 모델 구동 스트레스 테스트 —
+  실모델(Qwen) 연결 이후 진행.

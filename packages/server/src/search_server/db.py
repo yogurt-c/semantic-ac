@@ -1,5 +1,6 @@
 import os
 import threading
+from collections.abc import Iterator
 from datetime import datetime
 
 import duckdb
@@ -15,14 +16,13 @@ CREATE TABLE IF NOT EXISTS search_events (
 )
 """
 
-# DuckDB connections are not safe for unsynchronized concurrent use across
-# threads. FastAPI runs sync path operations in a threadpool, so both
-# connection creation and every write must be serialized explicitly —
-# functools.lru_cache alone does not prevent two threads from racing into
-# duckdb.connect() on the same path (it only locks around cache bookkeeping,
-# not the wrapped call itself).
-_connections: dict[str, duckdb.DuckDBPyConnection] = {}
-_connections_lock = threading.Lock()
+# DuckDB holds a file lock for as long as a connection stays open, regardless
+# of read_only mode — an AI batch worker (a separate OS process, see
+# docs/CONTRACT.md section 2) can never open the same file with
+# read_only=True while this server keeps a connection cached for its whole
+# process lifetime. Each request must open, write, and close its own
+# connection so the lock is released between requests. The write lock still
+# serializes connection creation/writes across threads within this process.
 _write_lock = threading.Lock()
 
 
@@ -31,29 +31,19 @@ def init_table(conn: duckdb.DuckDBPyConnection) -> duckdb.DuckDBPyConnection:
     return conn
 
 
-def _connection(db_path: str) -> duckdb.DuckDBPyConnection:
-    with _connections_lock:
-        conn = _connections.get(db_path)
-        if conn is None:
-            directory = os.path.dirname(db_path)
-            if directory:
-                os.makedirs(directory, exist_ok=True)
-            conn = init_table(duckdb.connect(db_path))
-            _connections[db_path] = conn
-        return conn
-
-
-def _clear_connection_cache() -> None:
-    with _connections_lock:
-        _connections.clear()
-
-
-_connection.cache_clear = _clear_connection_cache
-
-
-def get_db_connection() -> duckdb.DuckDBPyConnection:
+def get_db_connection() -> Iterator[duckdb.DuckDBPyConnection]:
     settings = get_settings()
-    return _connection(settings.duckdb_path)
+    db_path = settings.duckdb_path
+    directory = os.path.dirname(db_path)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
+
+    with _write_lock:
+        conn = init_table(duckdb.connect(db_path))
+        try:
+            yield conn
+        finally:
+            conn.close()
 
 
 def insert_event(
@@ -63,8 +53,7 @@ def insert_event(
     action: str,
     event_ts: datetime,
 ) -> None:
-    with _write_lock:
-        conn.execute(
-            "INSERT INTO search_events (prefix, selected, action, event_ts) VALUES (?, ?, ?, ?)",
-            [prefix, selected, action, event_ts],
-        )
+    conn.execute(
+        "INSERT INTO search_events (prefix, selected, action, event_ts) VALUES (?, ?, ?, ?)",
+        [prefix, selected, action, event_ts],
+    )

@@ -35,7 +35,7 @@ flowchart LR
     end
 
     subgraph Batch["비동기 AI 배치 엔진 (Python)"]
-        Runner["scoring -> embedding/Faiss\n-> keyword generator"]
+        Runner["scoring -> cooccurrence\n-> embedding/Faiss -> keyword generator"]
     end
 
     SDK -- "GET /suggest?q=" --> API
@@ -50,7 +50,7 @@ flowchart LR
 |---|---|---|
 | Client SDK | [`@semantic-ac/client`](packages/client) (TypeScript) | debounce 제어, 세션 내 로컬 캐싱, 검색 이벤트 트래킹 |
 | 실시간 서빙 API | [`search-server`](packages/server) (FastAPI + Redis) | 자동완성 O(1) 서빙, 검색 로그 수집(DuckDB) |
-| 비동기 AI 배치 엔진 | [`ai-engine`](packages/ai-engine) (Python) | 로그 스코어링, 임베딩 기반 유사어 매칭, sLLM 기반 오타/문맥 사전 컴파일 |
+| 비동기 AI 배치 엔진 | [`ai-engine`](packages/ai-engine) (Python) | 로그 스코어링, 세션 co-occurrence 기반 연관 검색어 학습, 임베딩 기반 유사어 매칭, sLLM 기반 오타/문맥 사전 컴파일 |
 
 세 컴포넌트는 [`docs/CONTRACT.md`](docs/CONTRACT.md)에 정의된 API 스키마와 Redis 키
 포맷만으로 통신하므로, 서로 독립적으로 교체하거나 배포할 수 있습니다.
@@ -122,6 +122,12 @@ docker-compose 세 서비스(`redis`, `search-server`, `ai-worker`)를 자사 �
 [`examples/vanilla`](examples/vanilla)에서 바로 실행해볼 수 있습니다. API 상세는
 [`packages/client/README.md`](packages/client/README.md) 참고.
 
+**주의:** `SemanticAutocompleteClient` 인스턴스는 생성 시 세션 ID를 1회 발급해
+이후 모든 `trackSearch()` 호출에 실어 보냅니다(연관 검색어 학습의 상관키, 위
+[콜드 스타트](#3-콜드-스타트-이해하기) 참고). 검색할 때마다, 혹은 리렌더링마다
+새 인스턴스를 만들면 세션이 매번 끊겨 co-occurrence 학습이 되지 않으니, 한 브라우징
+세션 동안은 인스턴스 하나를 재사용하세요.
+
 ### 3. 콜드 스타트 이해하기
 
 배포 직후에는 아직 검색 로그가 없으므로 `ai-worker`가 생성한 추천 사전도 비어
@@ -129,6 +135,13 @@ docker-compose 세 서비스(`redis`, `search-server`, `ai-worker`)를 자사 �
 엔드는 이를 "추천 없음"으로 정상 처리해야 합니다(드롭다운을 숨기면 됩니다). 실제
 사용자가 검색을 몇 번 하고(→ `trackSearch` 로그 누적), 배치가 최소 1회 실행된
 뒤부터(기본 주기 60초, `BATCH_INTERVAL_SECONDS`) 추천이 채워지기 시작합니다.
+
+같은 prefix 재검색 기반 추천(빈도+최신성)은 로그가 조금만 쌓여도 채워지지만,
+"노트북"→"맥북"처럼 문자열이 겹치지 않는 진짜 연관 검색어는 **같은 세션에서 두
+검색어 이상이 함께 selected된 세션**이 쌓여야 나타나기 시작합니다(session
+co-occurrence, [`packages/ai-engine/README.md`](packages/ai-engine/README.md) 참고).
+따라서 초기에는 같은 prefix 완성어 위주로만 보이다가, 트래픽이 쌓일수록 연관
+검색어가 점차 채워지는 것이 정상입니다.
 
 ### 4. 운영 체크리스트
 

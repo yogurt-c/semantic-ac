@@ -48,8 +48,44 @@ prefix `"노"`에 대해 `sugg:노`가 다음과 같은 순서로 채워진다:
    항상 빈 값을 반환하므로 실모델을 연결해야 실제로 채워진다([로드맵](#로드맵)).
 
 `_merge_unique`가 이 순서(prefix 랭킹 → co-occurrence → LLM 생성)대로 병합하며
-중복을 제거하고, 최종적으로 `top_n`개(기본 10개, `SUGGESTION_TOP_N`로 조정)로
-자른다.
+완전 일치 중복을 제거하고, `clean_candidates`(`candidate_filters.py`)가 정규화
+기준 유사 중복/불용어/길이 상하한/숫자·특수문자만/블록리스트를 한 번 더 걸러낸
+뒤, 최종적으로 `top_n`개(기본 10개, `SUGGESTION_TOP_N`로 조정)로 자른다.
+
+## 후보 정제와 LLM 가드레일
+
+로그 기반 레이어(prefix 랭킹, co-occurrence)는 "실제로 검색된 적 있는" 값만
+다루지만, LLM 생성기는 존재하지 않던 문자열을 새로 만들어낸다. 이 차이 때문에
+`pipeline.run_batch`는 주입받은 `KeywordGenerator`를 항상
+[`GuardedKeywordGenerator`](src/ai_engine/guarded_keyword_generator.py)로 감싸
+사용한다 — `NoopKeywordGenerator`를 실모델로 교체해도 아래 방어선은 코드를
+고치지 않아도 그대로 유지된다:
+
+1. **안전 폴백** — 모델 호출이 예외를 던지거나 `list[str]`이 아닌 값을
+   반환하면 빈 리스트로 대체한다. 부분 오염된 값은 절대 통과시키지 않는다.
+2. **시드 근접성 검사** — 생성된 후보가 prefix/context와 편집거리 기준으로
+   너무 무관하면(`difflib.SequenceMatcher` 비율 < `similarity_threshold`,
+   기본 0.3) 환각으로 간주해 폐기한다.
+3. **공통 정제 필터 재적용** — 살아남은 후보도 다른 레이어와 동일한
+   `clean_candidates`를 한 번 더 통과해야 한다.
+
+병합 이후 `clean_candidates`가 전체 목록에 적용하는 규칙:
+
+- **길이**: `SUGGESTION_MIN_LEN` ~ `SUGGESTION_MAX_LEN` 범위 밖은 제거
+- **숫자/특수문자만**: 전부 숫자거나 한글·영문·숫자를 하나도 포함하지 않으면 제거
+- **불용어**: `candidate_filters.DEFAULT_STOPWORDS`(조사성 채움말 소량 내장)
+- **블록리스트**: `SUGGESTION_BLOCKLIST_PATH`가 가리키는 파일(줄 단위 단어,
+  `#` 주석 지원)에 있는 단어와 casefold 일치하면 제거 — 욕설/스팸 단어를
+  코드에 하드코딩하지 않고 운영자가 직접 채우도록 분리했다
+- **정규화 dedup**: `_merge_unique`는 완전 일치만 dedup하므로, 대소문자/좌우
+  공백만 다른 유사 중복은 여기서 casefold 키로 한 번 더 제거
+
+빈도 기반 레이어(`score_keywords`, `build_cooccurrence_scores`)에는
+`SUGGESTION_MIN_COUNT`로 최소 등장 횟수 threshold를 별도로 둔다 — 1회만
+등장한 오타성 `selected` 값이 곧바로 추천 후보가 되는 것을 막는다.
+LLM 생성기 레이어는 최종 `top_n` 중 `SUGGESTION_GENERATED_MAX_SHARE`
+(기본 30%)를 넘지 못하도록 별도로 캡을 둔다 — 한 레이어가 결과를 도배하는
+것을 막는다.
 
 ## 기술 스택
 
@@ -68,8 +104,10 @@ src/ai_engine/
   embeddings.py          EmbeddingModel Protocol + E5SmallEmbeddingModel(실제 통합 지점)
   vector_index.py        Faiss 인덱스 빌드 / 원자적 저장(os.replace) / 최근접 검색
   keyword_generator.py   KeywordGenerator Protocol (오타/문맥 연관 키워드 생성)
+  guarded_keyword_generator.py  KeywordGenerator 래퍼 — 예외/형식 오류/환각 후보 방어
+  candidate_filters.py   불용어/길이/숫자·특수문자만/블록리스트 정제 + 정규화 dedup
   redis_writer.py        sugg:{prefix} 원자적 SET (docs/CONTRACT.md 섹션 3)
-  pipeline.py            스코어링 -> co-occurrence -> 임베딩/Faiss -> KeywordGenerator -> Redis 조립
+  pipeline.py            스코어링 -> co-occurrence -> 임베딩/Faiss -> KeywordGenerator -> 정제 -> Redis 조립
   stub_components.py     HashingEmbeddingModel/NoopKeywordGenerator — 실모델 연결
                          전 docker-compose 기본값 placeholder (실제 추천 품질 없음)
   runner.py              env var(REDIS_URL/DUCKDB_PATH/INDEX_PATH/BATCH_INTERVAL_SECONDS)
@@ -117,6 +155,11 @@ placeholder(`HashingEmbeddingModel`, `NoopKeywordGenerator`)를 주입해 파이
 | `FAISS_CONTEXT_SIZE` | `5` | `KeywordGenerator`에 넘길 Faiss 최근접 키워드 개수 |
 | `COOCCURRENCE_HALF_LIFE_HOURS` | `168`(1주) | 연관 검색어(co-occurrence) 점수의 감쇠 반감기. 짧게 하면 최신 트렌드에 더 민감해지지만 데이터가 적을 때는 관계가 빨리 사라진다 |
 | `COOCCURRENCE_SEED_SIZE` | `3` | prefix당 co-occurrence 조회에 seed로 쓸 상위 완성어 개수 |
+| `SUGGESTION_MIN_COUNT` | `1` | prefix 랭킹/co-occurrence 후보의 최소 등장 횟수(raw count). 1은 필터링 없음과 동일 |
+| `SUGGESTION_MIN_LEN` | `2` | 추천 후보 문자열의 최소 길이 |
+| `SUGGESTION_MAX_LEN` | `50` | 추천 후보 문자열의 최대 길이 |
+| `SUGGESTION_BLOCKLIST_PATH` | (미설정) | 욕설/스팸 차단 단어 목록 파일 경로(줄 단위, `#` 주석 지원). 미설정 시 블록리스트 없음 |
+| `SUGGESTION_GENERATED_MAX_SHARE` | `0.3` | 최종 `top_n` 중 LLM 생성기 레이어가 차지할 수 있는 최대 비중(0~1) |
 
 ## 로드맵
 
@@ -164,6 +207,16 @@ class QwenKeywordGenerator:
 - 모델: `Qwen2.5-1.5B-Instruct-GGUF` (Q4_K_M 등 4-bit 양자화 버전)
 - 설치: `uv sync --extra models` (`llama-cpp-python` 포함)
 - 생성 품질을 정성 검수하려면 `tests/fixtures/typo_synonym_pairs.json`을 활용한다.
+
+위 예시처럼 자유 텍스트를 `split(",")`로 파싱해도 `pipeline.run_batch`가 이
+구현체를 자동으로 `GuardedKeywordGenerator`로 감싸므로(위
+["후보 정제와 LLM 가드레일"](#후보-정제와-llm-가드레일) 참고), 파싱 실패나
+모델의 malformed 응답이 배치를 죽이거나 오염된 값을 그대로 노출시키지는 않는다.
+다만 가능하다면 `llama-cpp-python`의 grammar/JSON 모드로 구조화된 출력을
+받도록 프롬프트를 개선하는 쪽이 `split(",")` 파싱보다 안전하다 — 특히
+`context`에 사용자가 입력한 원문이 그대로 들어가므로, 프롬프트 인젝션을
+피하려면 `context`를 지시문이 아니라 순수 참고 데이터로만 취급하는 프롬프트
+구조를 유지해야 한다.
 
 ### 저사양 환경 검증
 

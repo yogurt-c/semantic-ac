@@ -64,6 +64,28 @@ def test_defaults_now_to_current_time_when_omitted(sample_events):
     assert len(scored) > 0
 
 
+def test_min_occurrences_filters_out_keywords_below_threshold(sample_events, reference_time):
+    """"가성비 노트북"과 "기계식 키보드"는 각각 1회만 등장한다."""
+    scored = score_keywords(sample_events, now=reference_time, min_occurrences=2)
+    keywords = [item.keyword for item in scored]
+
+    assert "노트북 추천" in keywords  # 2회 등장
+    assert "가성비 노트북" not in keywords
+    assert "기계식 키보드" not in keywords
+
+
+def test_min_occurrences_default_does_not_filter_single_occurrences(sample_events, reference_time):
+    scored = score_keywords(sample_events, now=reference_time)
+    keywords = [item.keyword for item in scored]
+
+    assert "가성비 노트북" in keywords
+
+
+def test_rejects_non_positive_min_occurrences(sample_events, reference_time):
+    with pytest.raises(ValueError):
+        score_keywords(sample_events, now=reference_time, min_occurrences=0)
+
+
 def test_group_events_by_prefix(sample_events):
     grouped = group_events_by_prefix(sample_events)
     assert set(grouped.keys()) == {"노트북", "키보드"}

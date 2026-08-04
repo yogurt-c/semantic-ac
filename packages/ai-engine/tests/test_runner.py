@@ -125,6 +125,10 @@ def test_main_once_passes_tuning_env_vars_through_to_run_batch(monkeypatch, tmp_
     monkeypatch.setenv("FAISS_CONTEXT_SIZE", "2")
     monkeypatch.setenv("COOCCURRENCE_HALF_LIFE_HOURS", "12")
     monkeypatch.setenv("COOCCURRENCE_SEED_SIZE", "1")
+    monkeypatch.setenv("SUGGESTION_MIN_COUNT", "2")
+    monkeypatch.setenv("SUGGESTION_MIN_LEN", "3")
+    monkeypatch.setenv("SUGGESTION_MAX_LEN", "30")
+    monkeypatch.setenv("SUGGESTION_GENERATED_MAX_SHARE", "0.5")
 
     captured_kwargs: dict = {}
 
@@ -146,6 +150,11 @@ def test_main_once_passes_tuning_env_vars_through_to_run_batch(monkeypatch, tmp_
         "context_size": 2,
         "cooccurrence_half_life_hours": 12.0,
         "cooccurrence_seed_size": 1,
+        "min_occurrences": 2,
+        "min_length": 3,
+        "max_length": 30,
+        "blocklist": frozenset(),
+        "generated_max_share": 0.5,
     }
 
 
@@ -175,7 +184,39 @@ def test_main_once_uses_pipeline_defaults_when_tuning_env_vars_are_unset(monkeyp
         "context_size": runner_module.DEFAULT_CONTEXT_SIZE,
         "cooccurrence_half_life_hours": runner_module.DEFAULT_COOCCURRENCE_HALF_LIFE_HOURS,
         "cooccurrence_seed_size": runner_module.DEFAULT_COOCCURRENCE_SEED_SIZE,
+        "min_occurrences": runner_module.DEFAULT_MIN_OCCURRENCES,
+        "min_length": runner_module.DEFAULT_MIN_LENGTH,
+        "max_length": runner_module.DEFAULT_MAX_LENGTH,
+        "blocklist": frozenset(),
+        "generated_max_share": runner_module.DEFAULT_GENERATED_MAX_SHARE,
     }
+
+
+def test_main_once_loads_blocklist_from_path_env_var(monkeypatch, tmp_path: Path):
+    duckdb_path = tmp_path / "events.duckdb"
+    _seed_events_db(duckdb_path)
+    blocklist_path = tmp_path / "blocklist.txt"
+    blocklist_path.write_text("스팸단어\n", encoding="utf-8")
+    monkeypatch.setenv("DUCKDB_PATH", str(duckdb_path))
+    monkeypatch.setenv("INDEX_PATH", str(tmp_path / "index.faiss"))
+    monkeypatch.setenv("SUGGESTION_BLOCKLIST_PATH", str(blocklist_path))
+
+    captured_kwargs: dict = {}
+
+    def _fake_run_batch(events, embedding_model, keyword_generator, redis_client, index_path, **kwargs):
+        captured_kwargs.update(kwargs)
+        return {}
+
+    monkeypatch.setattr(runner_module, "run_batch", _fake_run_batch)
+    monkeypatch.setattr(
+        runner_module.redis.Redis,
+        "from_url",
+        staticmethod(lambda *args, **kwargs: fakeredis.FakeStrictRedis(decode_responses=True)),
+    )
+
+    runner_module.main(["--once"])
+
+    assert captured_kwargs["blocklist"] == frozenset({"스팸단어"})
 
 
 def test_main_uses_batch_interval_seconds_env_var(monkeypatch):

@@ -86,6 +86,35 @@ def test_rejects_non_positive_top_n_per_term(reference_time):
         build_cooccurrence_scores([], now=reference_time, top_n_per_term=0)
 
 
+def test_rejects_non_positive_min_occurrences(reference_time):
+    with pytest.raises(ValueError):
+        build_cooccurrence_scores([], now=reference_time, min_occurrences=0)
+
+
+def test_min_occurrences_filters_out_pairs_seen_in_only_one_session(reference_time):
+    events = [
+        _event("노트북", "노트북", "s1", reference_time),
+        _event("맥북", "맥북", "s1", reference_time),
+    ]
+
+    scores = build_cooccurrence_scores(events, now=reference_time, min_occurrences=2)
+
+    assert scores == {}
+
+
+def test_min_occurrences_keeps_pairs_seen_in_enough_sessions(reference_time):
+    events = [
+        _event("노트북", "노트북", "s1", reference_time),
+        _event("맥북", "맥북", "s1", reference_time),
+        _event("노트북", "노트북", "s2", reference_time),
+        _event("맥북", "맥북", "s2", reference_time),
+    ]
+
+    scores = build_cooccurrence_scores(events, now=reference_time, min_occurrences=2)
+
+    assert [term for term, _ in scores["노트북"]] == ["맥북"]
+
+
 def test_related_terms_aggregates_scores_across_seed_terms(reference_time):
     events = [
         _event("노트북", "노트북", "s1", reference_time),

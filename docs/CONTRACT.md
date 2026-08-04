@@ -20,7 +20,7 @@ GET {baseUrl}/suggest?q={prefix}
 - 에러:
   - 400: `q` 누락/빈 문자열 — `{ "error": "q is required" }`
   - 500: Redis 조회 실패 등 — `{ "error": "<message>" }`
-- 성능 기준: 서버 처리 시간(Redis GET 왕복) 기준으로 측정 (TODO.md 0번 결정 참조)
+- 성능 기준: 서버 처리 시간(Redis GET 왕복) 기준으로 측정
 
 ## 2. Ingestion API — `trackSearch()` (트랙 B 구현 / 트랙 A 소비)
 
@@ -40,8 +40,11 @@ Content-Type: application/json
 }
 ```
 
-- `prefix`: string, 필수. 사용자가 입력한 미완성 검색어.
-- `selected`: string, 필수. 클릭된 추천어 또는 최종 확정 검색어.
+- `prefix`: string, 필수. 사용자가 입력한 미완성 검색어. 서버가 앞뒤 공백을 제거(trim)한 뒤
+  저장하며, trim 후 빈 문자열이면 422로 거부한다(AI 배치 파이프라인이 공백/노이즈 값으로
+  오염되는 것을 막기 위한 최소 검증).
+- `selected`: string, 필수. 클릭된 추천어 또는 최종 확정 검색어. `prefix`와 동일하게 trim 후
+  빈 문자열이면 422.
 - `action`: `"suggestion_click" | "final_search"`, 필수.
 - `sessionId`: string, 필수. 클라이언트 SDK가 인스턴스 생성 시 1회 발급(`crypto.randomUUID()`
   또는 폴백)해 그 인스턴스의 모든 `trackSearch()` 호출에 동일하게 실어 보낸다. AI 배치 엔진이
@@ -65,6 +68,9 @@ value: JSON 배열의 문자열, 예: ["노트북 추천", "가성비 노트북"
   읽으며 부분적으로 갱신된 상태를 볼 수 없다 — 별도의 스테이징 키/트랜잭션 불필요 (MVP 범위).
 - TTL 없음. 다음 배치 사이클에서 값이 통째로 재생성/덮어쓰기됨.
 - 읽기는 트랙 B(Suggestion API)만 수행, 단순 `GET sugg:{prefix}`.
+- 값에 담기는 각 문자열은 트랙 C가 쓰기 전에 정제를 거친다(불용어/길이 상하한/숫자·특수문자만/
+  블록리스트 제거, 정규화 기준 중복 제거 — `packages/ai-engine/README.md`의
+  "후보 정제와 LLM 가드레일" 참고). 트랙 B/A는 이 값을 추가 검증 없이 그대로 노출해도 된다.
 
 ## 4. 공통 규칙
 

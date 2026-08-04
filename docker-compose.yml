@@ -52,6 +52,11 @@ services:
       # FAISS_CONTEXT_SIZE: "5"
       # COOCCURRENCE_HALF_LIFE_HOURS: "168"
       # COOCCURRENCE_SEED_SIZE: "3"
+      # SUGGESTION_MIN_COUNT: "1"
+      # SUGGESTION_MIN_LEN: "2"
+      # SUGGESTION_MAX_LEN: "50"
+      # SUGGESTION_BLOCKLIST_PATH: "/data/blocklist.txt"
+      # SUGGESTION_GENERATED_MAX_SHARE: "0.3"
     volumes:
       - duckdb-data:/data
     depends_on:

@@ -142,6 +142,64 @@ def test_track_rejects_selected_exceeding_max_length_with_422(client):
     assert response.status_code == 422
 
 
+def test_track_rejects_blank_selected_with_422(client):
+    response = client.post(
+        "/track",
+        json={
+            "prefix": "노트북",
+            "selected": "   ",
+            "action": "final_search",
+            "sessionId": "session-1",
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_track_rejects_empty_string_prefix_with_422(client):
+    response = client.post(
+        "/track",
+        json={
+            "prefix": "",
+            "selected": "노트북 추천",
+            "action": "final_search",
+            "sessionId": "session-1",
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_track_rejects_blank_session_id_with_422(client):
+    response = client.post(
+        "/track",
+        json={
+            "prefix": "노트북",
+            "selected": "노트북 추천",
+            "action": "final_search",
+            "sessionId": "   ",
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_track_strips_surrounding_whitespace_before_storing(client, duckdb_conn):
+    client.post(
+        "/track",
+        json={
+            "prefix": "  노트북  ",
+            "selected": "  노트북 추천  ",
+            "action": "final_search",
+            "sessionId": "session-1",
+        },
+    )
+
+    row = duckdb_conn.execute("SELECT prefix, selected FROM search_events").fetchone()
+
+    assert row == ("노트북", "노트북 추천")
+
+
 def test_concurrent_post_track_requests_all_succeed(tmp_path, monkeypatch):
     db_path = tmp_path / "http_concurrent.duckdb"
     monkeypatch.setenv("DUCKDB_PATH", str(db_path))

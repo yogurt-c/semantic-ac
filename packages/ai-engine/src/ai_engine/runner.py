@@ -7,11 +7,14 @@ import time
 
 import redis
 
+from ai_engine.candidate_filters import DEFAULT_MAX_LENGTH, DEFAULT_MIN_LENGTH, load_wordlist
 from ai_engine.db_reader import fetch_search_events
 from ai_engine.pipeline import (
     DEFAULT_CONTEXT_SIZE,
     DEFAULT_COOCCURRENCE_HALF_LIFE_HOURS,
     DEFAULT_COOCCURRENCE_SEED_SIZE,
+    DEFAULT_GENERATED_MAX_SHARE,
+    DEFAULT_MIN_OCCURRENCES,
     DEFAULT_TOP_N,
     run_batch,
 )
@@ -34,11 +37,18 @@ def run_once(
     context_size: int = DEFAULT_CONTEXT_SIZE,
     cooccurrence_half_life_hours: float = DEFAULT_COOCCURRENCE_HALF_LIFE_HOURS,
     cooccurrence_seed_size: int = DEFAULT_COOCCURRENCE_SEED_SIZE,
+    min_occurrences: int = DEFAULT_MIN_OCCURRENCES,
+    min_length: int = DEFAULT_MIN_LENGTH,
+    max_length: int = DEFAULT_MAX_LENGTH,
+    blocklist: frozenset[str] = frozenset(),
+    generated_max_share: float = DEFAULT_GENERATED_MAX_SHARE,
 ) -> dict[str, list[str]]:
     """search_events를 읽어 배치 1회를 실행한다.
 
     실모델(E5/Qwen) 연결 전까지는 HashingEmbeddingModel/NoopKeywordGenerator
     placeholder로 파이프라인 구조만 검증한다 (stub_components.py 참고).
+    NoopKeywordGenerator를 실모델로 교체해도 run_batch가 항상
+    GuardedKeywordGenerator로 감싸기 때문에 정제 가드레일은 그대로 적용된다.
     """
     events = fetch_search_events(duckdb_path)
     if not events:
@@ -56,6 +66,11 @@ def run_once(
         context_size=context_size,
         cooccurrence_half_life_hours=cooccurrence_half_life_hours,
         cooccurrence_seed_size=cooccurrence_seed_size,
+        min_occurrences=min_occurrences,
+        min_length=min_length,
+        max_length=max_length,
+        blocklist=blocklist,
+        generated_max_share=generated_max_share,
     )
 
 
@@ -84,6 +99,13 @@ def main(argv: list[str] | None = None) -> None:
     cooccurrence_seed_size = int(
         os.environ.get("COOCCURRENCE_SEED_SIZE", DEFAULT_COOCCURRENCE_SEED_SIZE)
     )
+    min_occurrences = int(os.environ.get("SUGGESTION_MIN_COUNT", DEFAULT_MIN_OCCURRENCES))
+    min_length = int(os.environ.get("SUGGESTION_MIN_LEN", DEFAULT_MIN_LENGTH))
+    max_length = int(os.environ.get("SUGGESTION_MAX_LEN", DEFAULT_MAX_LENGTH))
+    generated_max_share = float(
+        os.environ.get("SUGGESTION_GENERATED_MAX_SHARE", DEFAULT_GENERATED_MAX_SHARE)
+    )
+    blocklist = load_wordlist(os.environ.get("SUGGESTION_BLOCKLIST_PATH"))
 
     def _run_once() -> dict[str, list[str]]:
         return run_once(
@@ -94,6 +116,11 @@ def main(argv: list[str] | None = None) -> None:
             context_size=context_size,
             cooccurrence_half_life_hours=cooccurrence_half_life_hours,
             cooccurrence_seed_size=cooccurrence_seed_size,
+            min_occurrences=min_occurrences,
+            min_length=min_length,
+            max_length=max_length,
+            blocklist=blocklist,
+            generated_max_share=generated_max_share,
         )
 
     if args.once:

@@ -153,6 +153,10 @@ co-occurrence, [`packages/ai-engine/README.md`](packages/ai-engine/README.md) �
   ([`packages/ai-engine/README.md`](packages/ai-engine/README.md) 참고).
 - **독립성**: `redis`/DuckDB 볼륨은 이 툴킷 전용입니다. 메인 서비스의 DB나 검색
   엔진 구조를 바꿀 필요가 없습니다.
+- **추천어 품질**: 불용어/길이/숫자·특수문자만 제거는 기본 내장돼 있지만,
+  욕설/스팸 차단 단어는 코드에 하드코딩하지 않으므로 `SUGGESTION_BLOCKLIST_PATH`로
+  자사 상황에 맞는 목록을 채워야 합니다
+  ([`packages/ai-engine/README.md`](packages/ai-engine/README.md#후보-정제와-llm-가드레일) 참고).
 
 ## 저장소 구조
 

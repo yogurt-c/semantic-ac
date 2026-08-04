@@ -8,6 +8,7 @@ from ai_engine.events import SearchEvent
 DEFAULT_HALF_LIFE_HOURS = 24.0 * 7
 DEFAULT_TOP_N_PER_TERM = 10
 DEFAULT_SEED_SIZE = 3
+DEFAULT_MIN_OCCURRENCES = 1
 
 CooccurrenceScores = dict[str, list[tuple[str, float]]]
 
@@ -18,6 +19,7 @@ def build_cooccurrence_scores(
     now: datetime | None = None,
     half_life_hours: float = DEFAULT_HALF_LIFE_HOURS,
     top_n_per_term: int = DEFAULT_TOP_N_PER_TERM,
+    min_occurrences: int = DEFAULT_MIN_OCCURRENCES,
 ) -> CooccurrenceScores:
     """세션 내에서 함께 selected된 키워드 쌍을 최신성 감쇠 가중치로 누적한다.
 
@@ -30,11 +32,17 @@ def build_cooccurrence_scores(
     half_life는 score_keywords의 기본값(24h)보다 길게 잡는다(기본 1주) — 같은 prefix
     재검색보다 세션 co-occurrence는 표본이 희소한 신호라서 너무 빨리 감쇠하면
     데이터가 쌓이기 전에 사라진다.
+
+    min_occurrences로 두 키워드가 함께 selected된 세션 수(raw count)가 기준
+    미달인 쌍을 걸러낸다 — 우연히 한 세션에서만 같이 나온 무관한 쌍이 연관
+    검색어로 노출되는 것을 막는다. 기본값 1은 필터링 없음(하위 호환)과 동일하다.
     """
     if half_life_hours <= 0:
         raise ValueError("half_life_hours must be positive")
     if top_n_per_term <= 0:
         raise ValueError("top_n_per_term must be positive")
+    if min_occurrences <= 0:
+        raise ValueError("min_occurrences must be positive")
 
     reference_time = now if now is not None else datetime.now(timezone.utc)
 
@@ -45,6 +53,7 @@ def build_cooccurrence_scores(
         sessions.setdefault(event.session_id, []).append(event)
 
     pair_scores: dict[tuple[str, str], float] = {}
+    pair_counts: dict[tuple[str, str], int] = {}
     for session_events in sessions.values():
         distinct_terms = sorted({event.selected for event in session_events})
         if len(distinct_terms) < 2:
@@ -56,9 +65,12 @@ def build_cooccurrence_scores(
 
         for term_a, term_b in combinations(distinct_terms, 2):
             pair_scores[(term_a, term_b)] = pair_scores.get((term_a, term_b), 0.0) + decay
+            pair_counts[(term_a, term_b)] = pair_counts.get((term_a, term_b), 0) + 1
 
     scores_by_term: dict[str, dict[str, float]] = {}
     for (term_a, term_b), score in pair_scores.items():
+        if pair_counts[(term_a, term_b)] < min_occurrences:
+            continue
         scores_by_term.setdefault(term_a, {})[term_b] = score
         scores_by_term.setdefault(term_b, {})[term_a] = score
 

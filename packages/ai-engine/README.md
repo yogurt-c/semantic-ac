@@ -121,9 +121,13 @@ scripts/
   eval_keyword_generator.py  설정된 KeywordGenerator의 생성 품질을
                          tests/fixtures/typo_synonym_pairs.json으로 정성 검수하는
                          수동 스크립트 (pytest 게이트 밖, 실모델 전제 — "생성 품질 평가" 참고)
+  eval_pipeline_quality.py  run_batch 전체 파이프라인을 baseline vs 실모델(E5/Qwen)로
+                         비교해 Hit@5 막대그래프를 남기는 수동 스크립트 (pytest 게이트
+                         밖, 실모델+matplotlib 전제 — "파이프라인 품질 벤치마크" 참고)
 tests/
   conftest.py            FakeEmbeddingModel, FakeKeywordGenerator 등 테스트 더블
   fixtures/typo_synonym_pairs.json   한국어 오타/유의어 평가 샘플 15개
+  fixtures/pipeline_quality_benchmark.json  파이프라인 벤치마크용 오타/유의어 샘플 40개
 ```
 
 ## 실행
@@ -292,7 +296,42 @@ uv run python scripts/eval_keyword_generator.py
 
 fixture에는 Faiss 컨텍스트가 없어 빈 컨텍스트로 평가한다는 한계가 있다 — 실제
 파이프라인에서는 `nearest_keywords()`가 찾은 의미적 인접 키워드가 context로 함께
-들어가므로, 이 스크립트의 정확도는 실제 배치보다 다소 보수적으로 나올 수 있다.
+들어가므로, 이 스크립트의 정확도는 실제 배치보다 다소 보수적으로 나올 수 있다. 이
+한계를 메운 end-to-end 버전은 바로 아래 "파이프라인 품질 벤치마크" 참고.
+
+### 파이프라인 품질 벤치마크
+
+`scripts/eval_pipeline_quality.py`는 `KeywordGenerator` 하나만 보는 위 스크립트와
+달리 `pipeline.run_batch()` 전체(scoring → co-occurrence → Faiss → KeywordGenerator
+→ 정제)를 baseline(`hashing`/`noop` placeholder)과 실모델(`E5`/`Qwen`) 두 설정으로
+각각 돌려 `tests/fixtures/pipeline_quality_benchmark.json`(오타 20개 + 유의어 20개,
+총 40개)에 대한 Hit@5를 비교한다. 각 테스트 prefix는 콜드 스타트를 가정해 이벤트를
+1건만 주입하므로(`selected=prefix` 자기 자신 — 정답을 미리 알려주지 않기 위함),
+baseline은 구조적으로 0%에 가깝게 나온다.
+
+```bash
+uv sync --extra models
+export QWEN_MODEL_PATH=/path/to/qwen2.5-1.5b-instruct-q4_k_m.gguf
+uv run --with matplotlib python scripts/eval_pipeline_quality.py
+```
+
+macOS에서 `llama-cpp-python`과 `sentence-transformers`(torch)가 OpenMP 런타임을
+중복 링크해 죽는 경우 `KMP_DUPLICATE_LIB_OK=TRUE`를 함께 export한다(공식 지원 방식은
+아니지만 평가 스크립트 실행 한정으로는 안전한 우회다).
+
+실측 결과(2026-08-05, 위 fixture 40개 기준):
+
+![baseline vs 실모델 Hit@5 비교 막대그래프](../../docs/assets/pipeline-quality-benchmark.png)
+
+| 설정 | 오타 교정 | 유의어 |
+|---|---|---|
+| baseline(`hashing`/`noop`) | 0% | 0% |
+| 실모델(`e5`+`qwen`, q4_k_m) | 90% | 65% |
+
+fixture가 40개 남짓의 수작업 표본이라 대표성에 한계가 있고(선정 편향 가능성), 이
+숫자는 "일반적인 품질 보증"이 아니라 "log 기반 스코어링만으로는 원천적으로 처리
+불가능한 오타/유의어를 실모델이 상당 부분 커버한다"는 것을 보여주는 재현 가능한
+근거로 봐야 한다. 모델/파라미터를 바꿀 때마다 이 스크립트로 회귀 여부를 확인할 것.
 
 ### 저사양 환경 검증
 

@@ -15,11 +15,15 @@ class _FakeLlama:
     전달하는지, 프롬프트에 prefix/context가 올바르게 삽입되는지 검증한다.
     """
 
-    def __init__(self, model_path: str, n_ctx: int, seed: int = -1) -> None:
+    def __init__(
+        self, model_path: str, n_ctx: int, seed: int = -1, chat_format: str | None = None
+    ) -> None:
         self.model_path = model_path
         self.n_ctx = n_ctx
         self.seed = seed
+        self.chat_format = chat_format
         self.calls: list[tuple[str, int, list[str], float]] = []
+        self.chat_calls: list[tuple[list[dict], int, list[str], float]] = []
         self.response_text = "노트북, 랩탑, 맥북"
 
     def __call__(
@@ -27,6 +31,16 @@ class _FakeLlama:
     ) -> dict:
         self.calls.append((prompt, max_tokens, stop, temperature))
         return {"choices": [{"text": self.response_text}]}
+
+    def create_chat_completion(
+        self,
+        messages: list[dict],
+        max_tokens: int,
+        stop: list[str] | None = None,
+        temperature: float = 0.8,
+    ) -> dict:
+        self.chat_calls.append((messages, max_tokens, stop, temperature))
+        return {"choices": [{"message": {"content": self.response_text}}]}
 
 
 @pytest.fixture
@@ -152,3 +166,53 @@ def test_conforms_to_keyword_generator_protocol(fake_llama_cpp_module):
     generator = QwenKeywordGenerator("/models/qwen.gguf")
 
     assert isinstance(generator, KeywordGenerator)
+
+
+def test_constructor_defaults_to_legacy_prompt_mode(fake_llama_cpp_module):
+    """use_chat_template 기본값(False)은 지금까지 벤치마크로 검증한 raw completion
+    경로를 그대로 써야 한다 - Llama 생성자에 chat_format을 넘기지 않아 Qwen2.5 GGUF에
+    대해 이미 검증된 수치를 조용히 바꾸지 않는다."""
+    from ai_engine.qwen_keyword_generator import QwenKeywordGenerator
+
+    generator = QwenKeywordGenerator("/models/qwen.gguf")
+
+    assert generator._llm.chat_format is None
+
+
+def test_constructor_enables_auto_chat_format_when_use_chat_template_is_true(
+    fake_llama_cpp_module,
+):
+    from ai_engine.qwen_keyword_generator import QwenKeywordGenerator
+
+    generator = QwenKeywordGenerator("/models/qwen.gguf", use_chat_template=True)
+
+    assert generator._llm.chat_format == "auto"
+
+
+def test_generate_uses_chat_completion_when_use_chat_template_is_true(fake_llama_cpp_module):
+    from ai_engine.qwen_keyword_generator import QwenKeywordGenerator
+
+    generator = QwenKeywordGenerator(
+        "/models/qwen.gguf", max_tokens=32, use_chat_template=True
+    )
+    generator.generate("노트북", ["가성비 노트북", "맥북"])
+
+    assert generator._llm.calls == []
+    messages, max_tokens, stop, _temperature = generator._llm.chat_calls[0]
+    assert messages[0]["role"] == "system"
+    assert messages[1]["role"] == "user"
+    assert "노트북" in messages[1]["content"]
+    assert "가성비 노트북, 맥북" in messages[1]["content"]
+    assert max_tokens == 32
+    assert stop == ["\n"]
+
+
+def test_generate_parses_chat_completion_response(fake_llama_cpp_module):
+    from ai_engine.qwen_keyword_generator import QwenKeywordGenerator
+
+    generator = QwenKeywordGenerator("/models/qwen.gguf", use_chat_template=True)
+    generator._llm.response_text = " 노트북 ,랩탑,, 맥북"
+
+    result = generator.generate("노트북", [])
+
+    assert result == ["노트북", "랩탑", "맥북"]

@@ -9,6 +9,16 @@ E5_PASSAGE_PREFIX = "passage: "
 DEFAULT_E5_MODEL_NAME = "intfloat/multilingual-e5-small"
 
 
+def _resolve_prefix(model_prompts: dict[str, str] | None, prompt_name: str, fallback: str) -> str:
+    """sentence-transformers 모델이 `config_sentence_transformers.json`에 자신만의
+    prompt(예: "query"/"passage")를 선언해두면 그걸 우선 쓰고, 선언이 없는 모델(e5
+    계열 등)에서는 하드코딩된 e5 프리픽스로 fallback한다 — 다른 sentence-transformers
+    모델로 바꿀 때 이 파일을 고치지 않아도 되게 하기 위함이다."""
+    if model_prompts and prompt_name in model_prompts:
+        return model_prompts[prompt_name]
+    return fallback
+
+
 @runtime_checkable
 class EmbeddingModel(Protocol):
     """키워드 문자열을 고정 차원 벡터로 변환하는 인터페이스.
@@ -48,13 +58,15 @@ class E5SmallEmbeddingModel:
 
     def encode_passages(self, texts: list[str]) -> np.ndarray:  # pragma: no cover - 실 모델 다운로드 필요
         self._ensure_loaded()
-        prefixed = [f"{E5_PASSAGE_PREFIX}{text}" for text in texts]
+        prefix = _resolve_prefix(getattr(self._model, "prompts", None), "passage", E5_PASSAGE_PREFIX)
+        prefixed = [f"{prefix}{text}" for text in texts]
         embeddings = self._model.encode(prefixed, normalize_embeddings=True)
         return np.asarray(embeddings, dtype=np.float32)
 
     def encode_query(self, text: str) -> np.ndarray:  # pragma: no cover - 실 모델 다운로드 필요
         self._ensure_loaded()
-        embeddings = self._model.encode([f"{E5_QUERY_PREFIX}{text}"], normalize_embeddings=True)
+        prefix = _resolve_prefix(getattr(self._model, "prompts", None), "query", E5_QUERY_PREFIX)
+        embeddings = self._model.encode([f"{prefix}{text}"], normalize_embeddings=True)
         return np.asarray(embeddings[0], dtype=np.float32)
 
     def _ensure_loaded(self) -> None:  # pragma: no cover - 실 모델 다운로드 필요

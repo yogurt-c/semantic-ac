@@ -181,6 +181,7 @@ env var로 `stub_components`의 placeholder(`HashingEmbeddingModel`,
 | `QWEN_MODEL_PATH` | (미설정) | `qwen` provider일 때 필수. GGUF 파일 경로. 다른 GGUF 모델(다른 크기/모델군)로 교체 가능 |
 | `QWEN_N_CTX` | `512` | llama.cpp context 크기 |
 | `QWEN_MAX_TOKENS` | `64` | 생성 최대 토큰 수 |
+| `QWEN_USE_CHAT_TEMPLATE` | `false` | `true`로 켜면 손수 짠 프롬프트 대신 GGUF에 내장된 chat_template(jinja2 메타데이터)을 `llama-cpp-python`이 자동 인식해 사용한다 — Qwen이 아닌 다른 GGUF로 바꿀 때 켜는 스위치([로드맵](#생성-모델qwen-gguf-연결교체) 참고). 기본값 false는 지금까지 벤치마크로 검증한 Qwen2.5 전용 프롬프트 경로를 그대로 유지한다 |
 
 ## 로드맵
 
@@ -219,10 +220,13 @@ export E5_MODEL_NAME=intfloat/multilingual-e5-base
 uv run python -m ai_engine.runner --once
 ```
 
-sentence-transformers Hub에 있는 어떤 모델 이름이든 넣을 수 있지만, `e5` 계열이 아닌
-모델(예: `BAAI/bge-*`)로 완전히 바꾸는 경우 문서(모델 카드)의 프리픽스 규칙이
-`intfloat/multilingual-e5-*`와 다를 수 있으니 `embeddings.py`의
-`E5_QUERY_PREFIX`/`E5_PASSAGE_PREFIX` 상수도 함께 맞춰야 한다.
+sentence-transformers Hub에 있는 어떤 모델 이름이든 넣을 수 있다. `e5` 계열이 아닌
+모델(예: `BAAI/bge-*`)로 완전히 바꾸는 경우에도 코드 수정은 보통 필요 없다 —
+`embeddings.py`는 모델이 `config_sentence_transformers.json`에 스스로 선언한
+`query`/`passage` prompt가 있으면 그걸 우선 쓰고, 선언이 없는 모델(e5 계열 등)에서만
+하드코딩된 `E5_QUERY_PREFIX`/`E5_PASSAGE_PREFIX`로 fallback한다. 모델 카드에 별도
+prompt 선언이 없는데 그 모델이 프리픽스를 요구하는 경우에만 위 두 상수를 직접
+맞춰야 한다.
 
 ### 생성 모델(Qwen GGUF) 연결/교체
 
@@ -263,11 +267,17 @@ export QWEN_MODEL_PATH=./models/qwen2.5-3b-instruct-q4_k_m.gguf
 ```
 
 `llama-cpp-python`은 GGUF 메타데이터로 모델 아키텍처를 자동 인식하므로 Qwen이 아닌
-다른 모델 계열(Llama, Mistral 등)의 GGUF도 그대로 로드는 된다. 다만
-`qwen_keyword_generator.py`의 프롬프트 문자열은 Qwen이 기대하는 형식으로 짜여 있어,
-완전히 다른 모델 계열로 바꾸면 그 모델의 instruct 프롬프트 템플릿에 맞게 프롬프트를
-조정해야 생성 품질이 유지된다 — 바꾼 뒤에는 항상 아래
-["생성 품질 평가"](#생성-품질-평가) 스크립트로 확인할 것.
+다른 모델 계열(Llama, Mistral 등)의 GGUF도 그대로 로드는 된다. 다만 기본값
+(`QWEN_USE_CHAT_TEMPLATE=false`)에서는 `qwen_keyword_generator.py`가 Qwen이 기대하는
+형식으로 짜인 프롬프트 문자열을 그대로 쓰므로, 완전히 다른 모델 계열로 바꾸면 생성
+품질이 떨어질 수 있다. 이때는 `QWEN_USE_CHAT_TEMPLATE=true`로 켜면 손수 짠 프롬프트
+대신 GGUF에 내장된 chat_template(jinja2 메타데이터)을 `llama-cpp-python`이 자동
+인식해 그 모델의 instruct 포맷에 맞춰 프롬프트를 대신 구성한다(Ollama/vLLM 등이
+쓰는 것과 같은 방식) — 프롬프트 코드를 고칠 필요가 없다. 단, 모든 GGUF가 유효한
+chat_template을 내장하고 있는 건 아니므로(변환 과정에서 누락되거나 깨진 사례가
+실제로 보고됨), 켠 뒤에는 항상 아래 ["생성 품질 평가"](#생성-품질-평가) 스크립트로
+확인할 것 — 내장 template이 없거나 깨진 경우 `QWEN_USE_CHAT_TEMPLATE=false`로
+되돌리고 기존 방식대로 프롬프트를 직접 조정한다.
 
 **5. 안전장치**: 자유 텍스트를 `split(",")`로 파싱하지만, `pipeline.run_batch`가 이
 구현체를 자동으로 `GuardedKeywordGenerator`로 감싸므로(위

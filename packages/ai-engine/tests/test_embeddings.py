@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import numpy as np
 
-from ai_engine.embeddings import E5SmallEmbeddingModel, EmbeddingModel
+from ai_engine.embeddings import (
+    E5_PASSAGE_PREFIX,
+    E5_QUERY_PREFIX,
+    E5SmallEmbeddingModel,
+    EmbeddingModel,
+    _resolve_prefix,
+)
 
 
 def test_fake_embedding_model_conforms_to_protocol(fake_embedding_model):
@@ -31,3 +37,18 @@ def test_e5_small_model_does_not_load_weights_until_encode_is_called():
     model = E5SmallEmbeddingModel()
     assert model.is_loaded is False
     assert model.model_name == "intfloat/multilingual-e5-small"
+
+
+def test_resolve_prefix_uses_model_declared_prompt_when_present():
+    prefix = _resolve_prefix({"query": "Instruct: search\nQuery: "}, "query", E5_QUERY_PREFIX)
+    assert prefix == "Instruct: search\nQuery: "
+
+
+def test_resolve_prefix_falls_back_to_default_when_model_has_no_prompts():
+    prefix = _resolve_prefix(None, "query", E5_QUERY_PREFIX)
+    assert prefix == E5_QUERY_PREFIX
+
+
+def test_resolve_prefix_falls_back_when_prompt_name_not_declared():
+    prefix = _resolve_prefix({"other": "..."}, "passage", E5_PASSAGE_PREFIX)
+    assert prefix == E5_PASSAGE_PREFIX

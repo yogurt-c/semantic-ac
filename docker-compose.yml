@@ -69,6 +69,7 @@ services:
       # QWEN_MODEL_PATH: "/models/qwen2.5-1.5b-instruct-q4_k_m.gguf"
       # QWEN_N_CTX: "512"
       # QWEN_MAX_TOKENS: "64"
+      # QWEN_USE_CHAT_TEMPLATE: "false"           # true면 GGUF 내장 chat_template로 프롬프트 자동 구성(Qwen 외 모델 계열로 바꿀 때)
     volumes:
       - duckdb-data:/data
       # GGUF 모델 파일을 직접 다운로드해 올려두는 자리 (자동 다운로드는 하지

@@ -22,17 +22,36 @@ class QwenKeywordGenerator:
         max_tokens: int = DEFAULT_QWEN_MAX_TOKENS,
         seed: int = -1,
         temperature: float = 0.0,
+        use_chat_template: bool = False,
     ) -> None:
         from llama_cpp import Llama
 
         # 기본값(-1)은 매 프로세스마다 다른 시드를 써 생성 결과가 조금씩 달라진다 -
         # 프로덕션 배치에서는 문제 없지만, 품질 벤치마크(scripts/eval_pipeline_quality.py)처럼
         # "이 변경이 실제로 점수를 바꿨는지"를 노이즈와 구별해야 할 때는 고정 시드가 필요하다.
-        self._llm = Llama(model_path=model_path, n_ctx=n_ctx, seed=seed)
+        #
+        # use_chat_template=False(기본)일 때는 지금까지 벤치마크로 검증해온 아래
+        # 손수 짠 프롬프트+raw completion 경로를 그대로 쓴다 - Qwen2.5 GGUF에 대해
+        # 이미 검증된 수치(README.md "파이프라인 품질 벤치마크" 참고)를 조용히
+        # 바꾸지 않기 위함이다. Qwen이 아닌 다른 GGUF로 바꿀 때는 use_chat_template=True로
+        # 켜면 GGUF에 내장된 chat_template(jinja2 메타데이터)을 llama-cpp-python이
+        # 자동 인식해 그 모델의 instruct 포맷에 맞는 프롬프트를 대신 만들어준다 - Ollama/
+        # vLLM 등이 쓰는 것과 같은 방식이다. 다만 모든 GGUF가 유효한 template을
+        # 내장하고 있는 건 아니므로, 켠 뒤에는 항상 eval 스크립트로 재검증할 것.
+        chat_format = "auto" if use_chat_template else None
+        self._llm = Llama(model_path=model_path, n_ctx=n_ctx, seed=seed, chat_format=chat_format)
         self._max_tokens = max_tokens
         self._temperature = temperature
+        self._use_chat_template = use_chat_template
 
     def generate(self, prefix: str, context: list[str]) -> list[str]:
+        if self._use_chat_template:
+            text = self._generate_via_chat_template(prefix, context)
+        else:
+            text = self._generate_via_legacy_prompt(prefix, context)
+        return [candidate.strip() for candidate in text.split(",") if candidate.strip()]
+
+    def _generate_via_legacy_prompt(self, prefix: str, context: list[str]) -> str:
         prompt = (
             "다음 검색어와 연관된 오타/유의어 키워드를 콤마로 구분해 나열하라.\n"
             f"검색어: {prefix}\n연관 키워드: {', '.join(context)}\n출력:"
@@ -50,5 +69,27 @@ class QwenKeywordGenerator:
         output = self._llm(
             prompt, max_tokens=self._max_tokens, stop=["\n"], temperature=self._temperature
         )
-        text = output["choices"][0]["text"]
-        return [candidate.strip() for candidate in text.split(",") if candidate.strip()]
+        return output["choices"][0]["text"]
+
+    def _generate_via_chat_template(self, prefix: str, context: list[str]) -> str:
+        # context는 사용자 selected 원문이 섞여 들어오므로 지시문이 아니라 참고
+        # 데이터로만 취급해야 프롬프트 인젝션 표면이 최소화된다 - system 메시지에
+        # 규칙을 고정하고, context는 user 메시지 안에 데이터로만 넣는다.
+        messages = [
+            {
+                "role": "system",
+                "content": "다음 검색어와 연관된 오타/유의어 키워드를 콤마로 구분해 나열하라. "
+                "콤마로 구분된 목록 한 줄만 출력하고 다른 설명은 덧붙이지 마라.",
+            },
+            {
+                "role": "user",
+                "content": f"검색어: {prefix}\n연관 키워드: {', '.join(context)}",
+            },
+        ]
+        output = self._llm.create_chat_completion(
+            messages=messages,
+            max_tokens=self._max_tokens,
+            stop=["\n"],
+            temperature=self._temperature,
+        )
+        return output["choices"][0]["message"]["content"]

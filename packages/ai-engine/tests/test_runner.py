@@ -259,42 +259,56 @@ def test_build_keyword_generator_returns_qwen_when_provider_env_var_set(monkeypa
     captured_kwargs: dict = {}
 
     class _FakeQwenKeywordGenerator:
-        def __init__(self, model_path: str, *, n_ctx: int, max_tokens: int) -> None:
+        def __init__(
+            self, model_path: str, *, n_ctx: int, max_tokens: int, use_chat_template: bool
+        ) -> None:
             captured_kwargs["model_path"] = model_path
             captured_kwargs["n_ctx"] = n_ctx
             captured_kwargs["max_tokens"] = max_tokens
+            captured_kwargs["use_chat_template"] = use_chat_template
 
     monkeypatch.setattr(runner_module, "QwenKeywordGenerator", _FakeQwenKeywordGenerator)
     monkeypatch.setenv("KEYWORD_GENERATOR_PROVIDER", "qwen")
     monkeypatch.setenv("QWEN_MODEL_PATH", "/models/qwen.gguf")
     monkeypatch.setenv("QWEN_N_CTX", "256")
     monkeypatch.setenv("QWEN_MAX_TOKENS", "32")
+    monkeypatch.setenv("QWEN_USE_CHAT_TEMPLATE", "true")
 
     generator = runner_module.build_keyword_generator()
 
     assert isinstance(generator, _FakeQwenKeywordGenerator)
-    assert captured_kwargs == {"model_path": "/models/qwen.gguf", "n_ctx": 256, "max_tokens": 32}
+    assert captured_kwargs == {
+        "model_path": "/models/qwen.gguf",
+        "n_ctx": 256,
+        "max_tokens": 32,
+        "use_chat_template": True,
+    }
 
 
 def test_build_keyword_generator_uses_defaults_when_optional_qwen_env_vars_unset(monkeypatch):
     captured_kwargs: dict = {}
 
     class _FakeQwenKeywordGenerator:
-        def __init__(self, model_path: str, *, n_ctx: int, max_tokens: int) -> None:
+        def __init__(
+            self, model_path: str, *, n_ctx: int, max_tokens: int, use_chat_template: bool
+        ) -> None:
             captured_kwargs["model_path"] = model_path
             captured_kwargs["n_ctx"] = n_ctx
             captured_kwargs["max_tokens"] = max_tokens
+            captured_kwargs["use_chat_template"] = use_chat_template
 
     monkeypatch.setattr(runner_module, "QwenKeywordGenerator", _FakeQwenKeywordGenerator)
     monkeypatch.setenv("KEYWORD_GENERATOR_PROVIDER", "qwen")
     monkeypatch.setenv("QWEN_MODEL_PATH", "/models/qwen.gguf")
     monkeypatch.delenv("QWEN_N_CTX", raising=False)
     monkeypatch.delenv("QWEN_MAX_TOKENS", raising=False)
+    monkeypatch.delenv("QWEN_USE_CHAT_TEMPLATE", raising=False)
 
     runner_module.build_keyword_generator()
 
     assert captured_kwargs["n_ctx"] == runner_module.DEFAULT_QWEN_N_CTX
     assert captured_kwargs["max_tokens"] == runner_module.DEFAULT_QWEN_MAX_TOKENS
+    assert captured_kwargs["use_chat_template"] is False
 
 
 def test_build_keyword_generator_raises_when_qwen_model_path_missing(monkeypatch):

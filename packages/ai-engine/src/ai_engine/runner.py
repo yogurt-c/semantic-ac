@@ -55,7 +55,14 @@ def build_keyword_generator() -> KeywordGenerator:
         model_path = os.environ["QWEN_MODEL_PATH"]
         n_ctx = int(os.environ.get("QWEN_N_CTX", DEFAULT_QWEN_N_CTX))
         max_tokens = int(os.environ.get("QWEN_MAX_TOKENS", DEFAULT_QWEN_MAX_TOKENS))
-        return QwenKeywordGenerator(model_path, n_ctx=n_ctx, max_tokens=max_tokens)
+        use_chat_template = os.environ.get("QWEN_USE_CHAT_TEMPLATE", "false").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+        return QwenKeywordGenerator(
+            model_path, n_ctx=n_ctx, max_tokens=max_tokens, use_chat_template=use_chat_template
+        )
     raise ValueError(f"unknown KEYWORD_GENERATOR_PROVIDER: {provider!r}")
 
 

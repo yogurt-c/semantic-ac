@@ -28,6 +28,10 @@
 
 4. 브라우저에서 `http://localhost:5500/examples/vanilla/` 접속.
 
+콜드 스타트 없이 co-occurrence/오타 교정 데모를 바로 보고 싶다면 3번 대신
+[`scripts/seed-demo-data`](../../scripts/seed-demo-data)를 사용하세요 (루트
+[`README.md`](../../README.md#데모-데이터로-바로-체험하기) 참고).
+
 ## 참고
 
 - docker-compose의 `search-server`는 기본적으로 `ALLOWED_ORIGINS=*`로 뜨기 때문에,

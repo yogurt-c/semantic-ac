@@ -1,0 +1,76 @@
+# 데모용 search_events 샘플 데이터 (seed.sh가 이 파일을 읽어 /track에 주입한다).
+# 컬럼(탭 구분): session_id  prefix  selected  action
+#
+# 그룹 A: co-occurrence 데모 (README "노트북" -> "맥북" 예시의 근거 데이터).
+# 같은 session_id 안에서 "노트북"과 "맥북"이 함께 selected되는 세션을 16개 쌓아
+# ai_engine.cooccurrence가 두 키워드를 연관 검색어로 학습하게 한다.
+seed-nb-01	노트북	노트북	final_search
+seed-nb-01	맥북	맥북	final_search
+seed-nb-02	노트북	노트북	final_search
+seed-nb-02	맥북	맥북	final_search
+seed-nb-03	노트북	노트북	final_search
+seed-nb-03	맥북	맥북	final_search
+seed-nb-04	노트북	노트북	final_search
+seed-nb-04	맥북	맥북	final_search
+seed-nb-05	노트북	노트북	final_search
+seed-nb-05	맥북	맥북	final_search
+seed-nb-06	노트북	노트북	final_search
+seed-nb-06	맥북	맥북	final_search
+seed-nb-07	노트북	노트북	final_search
+seed-nb-07	맥북	맥북	final_search
+seed-nb-08	노트북	노트북	final_search
+seed-nb-08	맥북	맥북	final_search
+seed-nb-09	노트북	노트북	final_search
+seed-nb-09	맥북	맥북	final_search
+seed-nb-10	노트북	노트북	final_search
+seed-nb-10	맥북	맥북	final_search
+seed-nb-11	노트북	노트북	final_search
+seed-nb-11	맥북	맥북	final_search
+seed-nb-12	노트북	노트북	final_search
+seed-nb-12	맥북	맥북	final_search
+seed-nb-13	노트북	노트북	final_search
+seed-nb-13	맥북	맥북	final_search
+seed-nb-14	노트북	노트북	final_search
+seed-nb-14	맥북	맥북	final_search
+seed-nb-15	노트북	노트북	final_search
+seed-nb-15	맥북	맥북	final_search
+seed-nb-16	노트북	노트북	final_search
+seed-nb-16	맥북	맥북	final_search
+#
+# 그룹 B: 오타 교정 데모 (ai_engine.scoring의 prefix별 score_keywords 근거 데이터).
+# 오타 prefix로 검색했지만 결국 정상 표기 키워드를 selected한 세션을 반복 주입해,
+# 다음 번 같은 오타가 들어오면 배치가 이미 학습한 교정값을 바로 추천하게 한다.
+seed-typo-earphone-01	무선이어폭	무선이어폰	suggestion_click
+seed-typo-earphone-02	무선이어폭	무선이어폰	suggestion_click
+seed-typo-earphone-03	무선이어폭	무선이어폰	suggestion_click
+seed-typo-earphone-04	무선이어폭	무선이어폰	suggestion_click
+seed-typo-earphone-05	무선이어폭	무선이어폰	suggestion_click
+seed-typo-earphone-06	무선이어폭	무선이어폰	suggestion_click
+seed-typo-earphone-07	무선이어폭	무선이어폰	suggestion_click
+seed-typo-earphone-08	무선이어폭	무선이어폰	suggestion_click
+seed-typo-earphone-09	무선이어폭	무선이어폰	suggestion_click
+seed-typo-earphone-10	무선이어폭	무선이어폰	suggestion_click
+seed-typo-humid-01	가습키	가습기	suggestion_click
+seed-typo-humid-02	가습키	가습기	suggestion_click
+seed-typo-humid-03	가습키	가습기	suggestion_click
+seed-typo-humid-04	가습키	가습기	suggestion_click
+seed-typo-humid-05	가습키	가습기	suggestion_click
+seed-typo-humid-06	가습키	가습기	suggestion_click
+seed-typo-humid-07	가습키	가습기	suggestion_click
+seed-typo-humid-08	가습키	가습기	suggestion_click
+seed-typo-humid-09	가습키	가습기	suggestion_click
+seed-typo-humid-10	가습키	가습기	suggestion_click
+#
+# 그룹 C: 어휘 다양성용 필러 데이터. co-occurrence/score 대상은 아니지만 E5
+# 임베딩 FAISS 인덱스(ai_engine.vector_index)와 Qwen 컨텍스트에 들어갈 실제
+# 커머스 어휘를 넓혀, 두 키워드짜리 장난감 데이터셋처럼 보이지 않게 한다.
+seed-misc-01	백팩	백팩	final_search
+seed-misc-02	캠핑의자	캠핑의자	final_search
+seed-misc-03	블루투스스피커	블루투스 스피커	final_search
+seed-misc-04	런닝화	런닝화	final_search
+seed-misc-05	우산	우산	final_search
+seed-misc-06	텀블러	텀블러	final_search
+seed-misc-07	키보드	기계식 키보드	final_search
+seed-misc-08	모니터	모니터암	final_search
+seed-misc-09	에어프라이어	에어프라이어	final_search
+seed-misc-10	무선마우스	무선마우스	final_search

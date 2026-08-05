@@ -90,6 +90,27 @@ curl 'http://localhost:8000/suggest?q=노트북'
 ./scripts/e2e.sh
 ```
 
+### 데모 데이터로 바로 체험하기
+
+빈 `search_events`로는 위 `curl` 예시처럼 이벤트를 하나씩 직접 쌓아야 연관 검색어를
+볼 수 있습니다. 콜드 스타트 없이 co-occurrence("노트북" → "맥북")와 오타 교정
+("무선이어폭" → "무선이어폰") 데모를 바로 보고 싶다면:
+
+```bash
+./scripts/seed-demo-data/seed.sh
+docker compose restart ai-worker   # 배치 주기를 기다리지 않고 즉시 1회 실행
+
+curl 'http://localhost:8000/suggest?q=노트북'
+```
+
+자세한 내용은 [`scripts/seed-demo-data/README.md`](scripts/seed-demo-data/README.md) 참고.
+위 데이터를 주입한 뒤 [`examples/vanilla`](examples/vanilla)에서 실제로 입력하면:
+
+| co-occurrence 연관 검색어 | 오타 교정 |
+|---|---|
+| ![노트북 입력 시 맥북이 연관 검색어로 뜨는 화면](docs/assets/demo-cooccurrence-notebook-macbook.jpg) | ![무선이어폭 오타 입력 시 무선이어폰으로 교정되는 화면](docs/assets/demo-typo-correction-earphone.jpg) |
+| "노트북" 입력 → 같은 세션에서 자주 함께 검색된 "맥북"이 함께 추천됨 | "무선이어폭"(오타) 입력 → 과거 로그가 학습한 정상 표기 "무선이어폰"으로 교정 |
+
 ### 실모델(E5/Qwen)로 전환하기
 
 위 placeholder는 배치 구조만 검증할 뿐 실제 추천 품질(오타 교정, "노트북"→"맥북" 같은

@@ -1,22 +1,32 @@
-"""baseline(HashingEmbeddingModel/NoopKeywordGenerator) vs 실모델(E5/Qwen) 두 설정으로
-run_batch 전체 파이프라인(scoring -> co-occurrence -> Faiss -> KeywordGenerator)을 돌려
-오타/유의어 교정 Hit@5를 비교하고 막대그래프로 저장하는 수동 스크립트.
+"""전통적인 편집거리(Levenshtein) 기반 스펠체크 vs semantic-ac(E5+Qwen, 임베딩 크기별)를
+같은 오타/유의어 fixture로 비교해 Hit@5 막대그래프로 저장하는 수동 스크립트.
+
+처음에는 이 프로젝트 자체의 placeholder(HashingEmbeddingModel/NoopKeywordGenerator)를
+baseline으로 삼았으나, NoopKeywordGenerator는 애초에 항상 빈 리스트를 반환하도록
+만들어진 구조 검증용 stub이라 "0%"가 나오는 게 실행해보지 않아도 이미 알 수 있는
+당연한 결과(tautology)였다 - 허수아비와 비교하는 셈이라 설득력이 없다. 그래서
+baseline을 실제로 많은 시스템이 쓰는 비-ML 기법인 편집거리 기반 스펠체크로 바꿨다.
+
+fixture의 유의어를 prefix/correct가 문자열을 전혀 공유하지 않는 "진짜" 유의어로
+다시 짠 뒤 측정해보니, 기본 모델(multilingual-e5-small)은 유의어에서 Levenshtein과
+거의 다를 바 없이 낮은 점수가 나왔다 - 원인을 진단해보니 Qwen 생성 문제가 아니라
+Faiss/E5 검색 단계에서부터 진짜 정답이 top-5 context에 거의 안 들어오는 것이었다.
+그래서 E5_MODEL_SWEEP으로 e5-small/base/large 세 크기를 전부 돌려, "임베딩 모델
+크기가 커질수록 유의어 검색 품질이 실제로 좋아지는가"까지 같은 그래프에 담는다 -
+이 프로젝트가 강조하는 "리소스 대비 품질 트레이드오프"를 직접 보여주는 숫자다.
 
 eval_keyword_generator.py는 KeywordGenerator 하나만 context 없이 평가해 "실제 배치보다
-보수적인" 수치가 나온다는 한계가 있다(README.md "생성 품질 평가" 참고). 이 스크립트는
-그 한계를 메우기 위해 각 테스트 prefix를 실제로 한 번 검색한 것처럼 이벤트를 주입하고
-run_batch를 그대로 실행해, `/suggest`가 실제로 반환할 값 그대로를 채점한다.
-
-각 테스트 prefix마다 "누군가 그 오타/유의어로 검색해봤다"는 최소 이벤트 1건만 주입한다
-(selected=prefix 자기 자신 - scoring 레이어가 정답을 우연히 알려주지 않도록). 정답
-자체는 별도의 "정상 표기로 검색해 정상 표기를 골랐다" 이벤트로 vocabulary에 심어
-Faiss가 찾을 수 있게 한다. baseline은 이 vocabulary를 의미적으로 활용할 방법이 없으므로
-(HashingEmbeddingModel은 의미 없는 해시 벡터, NoopKeywordGenerator는 항상 빈 리스트)
-구조적으로 0%에 가깝게 나오는 것이 기대값이다 - README 인트로의 "Trie 기반은 오타/유의어를
-처리 못한다"는 주장을 이 스크립트가 직접 증명한다.
+보수적인" 수치가 나온다는 한계가 있다(README.md "생성 품질 평가" 참고). semantic-ac
+쪽 수치는 이 스크립트가 실제 run_batch 전체(scoring -> co-occurrence -> Faiss ->
+KeywordGenerator)를 그대로 실행해서 낸다 - `/suggest`가 실제로 반환할 값 그대로를
+채점한다. 각 테스트 prefix마다 "누군가 그 오타/유의어로 검색해봤다"는 최소 이벤트
+1건만 주입한다(selected=prefix 자기 자신 - scoring 레이어가 정답을 우연히 알려주지
+않도록). 정답 자체는 별도의 "정상 표기로 검색해 정상 표기를 골랐다" 이벤트로
+vocabulary에 심어 Faiss가 찾을 수 있게 한다.
 
 pytest 스위트/커버리지 게이트 밖에 둔다 - 실모델 가중치(E5/Qwen) 다운로드와 matplotlib이
-전제이므로 CI에서 자동 실행하지 않는다. 사용법은 packages/ai-engine/README.md
+전제이므로 CI에서 자동 실행하지 않는다. e5-large까지 받으면 다운로드만 3GB 안팎이라
+로컬 디스크 여유를 확인할 것. 사용법은 packages/ai-engine/README.md
 "파이프라인 품질 벤치마크" 섹션 참고.
 
     uv sync --extra models
@@ -34,11 +44,10 @@ from tempfile import TemporaryDirectory
 
 import fakeredis
 
-from ai_engine.embeddings import DEFAULT_E5_MODEL_NAME, E5SmallEmbeddingModel
+from ai_engine.embeddings import E5SmallEmbeddingModel
 from ai_engine.events import SearchEvent
 from ai_engine.pipeline import run_batch
 from ai_engine.qwen_keyword_generator import DEFAULT_QWEN_N_CTX, QwenKeywordGenerator
-from ai_engine.stub_components import HashingEmbeddingModel, NoopKeywordGenerator
 
 FIXTURE_PATH = (
     Path(__file__).resolve().parent.parent / "tests" / "fixtures" / "pipeline_quality_benchmark.json"
@@ -46,6 +55,44 @@ FIXTURE_PATH = (
 CHART_PATH = Path(__file__).resolve().parent.parent.parent.parent / "docs" / "assets" / "pipeline-quality-benchmark.png"
 TOP_K = 5
 TYPES = ["typo", "synonym"]
+E5_MODEL_SWEEP = [
+    ("e5-small+qwen", "intfloat/multilingual-e5-small", "e5-small+Qwen (~470MB)"),
+    ("e5-base+qwen", "intfloat/multilingual-e5-base", "e5-base+Qwen (~1.1GB)"),
+    ("e5-large+qwen", "intfloat/multilingual-e5-large", "e5-large+Qwen (~2.2GB)"),
+]
+CONFIG_LABELS = {"levenshtein": "Levenshtein 편집거리", **{key: label for key, _, label in E5_MODEL_SWEEP}}
+
+
+def _levenshtein_distance(a: str, b: str) -> int:
+    if len(a) < len(b):
+        a, b = b, a
+    previous_row = list(range(len(b) + 1))
+    for i, char_a in enumerate(a, start=1):
+        current_row = [i]
+        for j, char_b in enumerate(b, start=1):
+            insert_cost = current_row[j - 1] + 1
+            delete_cost = previous_row[j] + 1
+            substitute_cost = previous_row[j - 1] + (char_a != char_b)
+            current_row.append(min(insert_cost, delete_cost, substitute_cost))
+        previous_row = current_row
+    return previous_row[-1]
+
+
+def _run_levenshtein_baseline(pairs: list[dict]) -> dict[str, float]:
+    """semantic-ac 쪽(_build_events)과 동일한 후보 풀(정답 + 테스트 prefix 자기 자신)에서
+    찾게 해 두 방식이 같은 vocabulary를 놓고 경쟁하도록 맞춘다 - vocabulary 크기가
+    다르면 편집거리 top-K가 우연히 맞을 확률 자체가 달라져 비교가 불공정해진다."""
+    vocabulary = sorted({pair["correct"] for pair in pairs} | {pair["prefix"] for pair in pairs})
+    rates: dict[str, float] = {}
+    for item_type in TYPES:
+        subset = [pair for pair in pairs if pair["type"] == item_type]
+        hits = 0
+        for pair in subset:
+            ranked = sorted(vocabulary, key=lambda term: _levenshtein_distance(pair["prefix"], term))
+            if pair["correct"] in ranked[:TOP_K]:
+                hits += 1
+        rates[item_type] = hits / len(subset)
+    return rates
 
 
 def _build_events(pairs: list[dict]) -> list[SearchEvent]:
@@ -73,7 +120,7 @@ def _hit_rates(written: dict[str, list[str]], pairs: list[dict]) -> dict[str, fl
     return rates
 
 
-def _run_config(embedding_model, keyword_generator, pairs: list[dict]) -> dict[str, float]:
+def _run_semantic_ac(embedding_model, keyword_generator, pairs: list[dict]) -> dict[str, float]:
     events = _build_events(pairs)
     redis_client = fakeredis.FakeStrictRedis(decode_responses=True)
     with TemporaryDirectory() as tmp_dir:
@@ -112,24 +159,25 @@ def _save_chart(results: dict[str, dict[str, float]]) -> None:
     import matplotlib.pyplot as plt
 
     _use_korean_font()
-    labels = {"typo": "오타 교정", "synonym": "유의어"}
+    type_labels = {"typo": "오타 교정", "synonym": "유의어"}
     configs = list(results.keys())
+    n = len(configs)
     x = range(len(TYPES))
-    width = 0.35
+    width = 0.8 / n
 
-    fig, ax = plt.subplots(figsize=(6, 4))
+    fig, ax = plt.subplots(figsize=(9, 5))
     for i, config in enumerate(configs):
-        offsets = [pos + (i - 0.5) * width for pos in x]
+        offsets = [pos + (i - (n - 1) / 2) * width for pos in x]
         values = [results[config][item_type] * 100 for item_type in TYPES]
-        bars = ax.bar(offsets, values, width, label=config)
-        ax.bar_label(bars, fmt="%.0f%%")
+        bars = ax.bar(offsets, values, width, label=CONFIG_LABELS.get(config, config))
+        ax.bar_label(bars, fmt="%.0f%%", fontsize=8)
 
     ax.set_xticks(list(x))
-    ax.set_xticklabels([labels[item_type] for item_type in TYPES])
+    ax.set_xticklabels([type_labels[item_type] for item_type in TYPES])
     ax.set_ylabel(f"Hit@{TOP_K} (%)")
     ax.set_ylim(0, 110)
-    ax.set_title("baseline(hashing/noop) vs 실모델(E5/Qwen) 정확도 비교")
-    ax.legend()
+    ax.set_title("Levenshtein 편집거리 vs semantic-ac(임베딩 크기별) 정확도 비교")
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.08), ncol=2)
     fig.tight_layout()
 
     CHART_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -144,19 +192,21 @@ def main() -> None:
 
     results: dict[str, dict[str, float]] = {}
 
-    print("[1/2] baseline(hashing/noop) 실행 중...")
-    results["baseline"] = _run_config(HashingEmbeddingModel(), NoopKeywordGenerator(), pairs)
+    print("[1/{}] Levenshtein 편집거리 baseline 실행 중...".format(len(E5_MODEL_SWEEP) + 1))
+    results["levenshtein"] = _run_levenshtein_baseline(pairs)
 
-    print("[2/2] 실모델(E5/Qwen) 실행 중... (최초 실행 시 E5 다운로드로 시간이 걸릴 수 있음)")
     model_path = os.environ["QWEN_MODEL_PATH"]
-    e5 = E5SmallEmbeddingModel(os.environ.get("E5_MODEL_NAME", DEFAULT_E5_MODEL_NAME))
     qwen = QwenKeywordGenerator(model_path, n_ctx=int(os.environ.get("QWEN_N_CTX", DEFAULT_QWEN_N_CTX)))
-    results["e5+qwen"] = _run_config(e5, qwen, pairs)
+    for step, (config_key, model_name, label) in enumerate(E5_MODEL_SWEEP, start=2):
+        print(f"[{step}/{len(E5_MODEL_SWEEP) + 1}] {label} 실행 중... "
+              "(최초 실행 시 모델 다운로드로 시간이 걸릴 수 있음)")
+        e5 = E5SmallEmbeddingModel(model_name)
+        results[config_key] = _run_semantic_ac(e5, qwen, pairs)
 
     print("\n--- 결과 (Hit@5) ---")
     for config, rates in results.items():
         for item_type in TYPES:
-            print(f"{config:>10} / {item_type:<8}: {rates[item_type]:.0%}")
+            print(f"{CONFIG_LABELS[config]:>24} / {item_type:<8}: {rates[item_type]:.0%}")
 
     _save_chart(results)
 

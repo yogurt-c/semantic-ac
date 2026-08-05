@@ -303,11 +303,16 @@ fixture에는 Faiss 컨텍스트가 없어 빈 컨텍스트로 평가한다는 �
 
 `scripts/eval_pipeline_quality.py`는 `KeywordGenerator` 하나만 보는 위 스크립트와
 달리 `pipeline.run_batch()` 전체(scoring → co-occurrence → Faiss → KeywordGenerator
-→ 정제)를 baseline(`hashing`/`noop` placeholder)과 실모델(`E5`/`Qwen`) 두 설정으로
-각각 돌려 `tests/fixtures/pipeline_quality_benchmark.json`(오타 20개 + 유의어 20개,
-총 40개)에 대한 Hit@5를 비교한다. 각 테스트 prefix는 콜드 스타트를 가정해 이벤트를
-1건만 주입하므로(`selected=prefix` 자기 자신 — 정답을 미리 알려주지 않기 위함),
-baseline은 구조적으로 0%에 가깝게 나온다.
+→ 정제)를 실행해 `/suggest`가 실제로 반환할 값을 그대로 채점한다.
+
+baseline으로 이 프로젝트 자체의 placeholder(`hashing`/`noop`)를 처음 썼는데,
+`NoopKeywordGenerator`는 애초에 항상 빈 리스트를 반환하도록 만들어진 stub이라
+"0%"가 나오는 게 실행 전부터 이미 정해진 결과(tautology)였다 — 허수아비 비교라
+설득력이 없었다. 그래서 baseline을 실제로 널리 쓰이는 비-ML 기법인
+**Levenshtein 편집거리 기반 스펠체크**로 바꾸고, 대신 semantic-ac 쪽은 `E5_MODEL_SWEEP`으로
+`e5-small`/`e5-base`/`e5-large` 세 크기를 전부 돌려 임베딩 모델 크기별 품질
+차이까지 같은 그래프에 담는다. 각 테스트 prefix는 콜드 스타트를 가정해 이벤트를
+1건만 주입한다(`selected=prefix` 자기 자신 — 정답을 미리 알려주지 않기 위함).
 
 ```bash
 uv sync --extra models
@@ -315,23 +320,38 @@ export QWEN_MODEL_PATH=/path/to/qwen2.5-1.5b-instruct-q4_k_m.gguf
 uv run --with matplotlib python scripts/eval_pipeline_quality.py
 ```
 
+e5-large까지 받으면 다운로드가 3GB 안팎이라 로컬 디스크 여유를 미리 확인할 것.
 macOS에서 `llama-cpp-python`과 `sentence-transformers`(torch)가 OpenMP 런타임을
 중복 링크해 죽는 경우 `KMP_DUPLICATE_LIB_OK=TRUE`를 함께 export한다(공식 지원 방식은
 아니지만 평가 스크립트 실행 한정으로는 안전한 우회다).
 
-실측 결과(2026-08-05, 위 fixture 40개 기준):
+실측 결과(2026-08-05, `tests/fixtures/pipeline_quality_benchmark.json` 40개 기준
+— 오타/유의어 모두 prefix와 correct가 문자열을 전혀 공유하지 않도록 손수 검증한
+fixture):
 
-![baseline vs 실모델 Hit@5 비교 막대그래프](../../docs/assets/pipeline-quality-benchmark.png)
+![Levenshtein 편집거리 vs semantic-ac(임베딩 크기별) Hit@5 비교 막대그래프](../../docs/assets/pipeline-quality-benchmark.png)
 
 | 설정 | 오타 교정 | 유의어 |
 |---|---|---|
-| baseline(`hashing`/`noop`) | 0% | 0% |
-| 실모델(`e5`+`qwen`, q4_k_m) | 90% | 65% |
+| Levenshtein 편집거리(비-ML) | 100% | 0% |
+| e5-small + Qwen(q4_k_m) | 95% | 5% |
+| e5-base + Qwen(q4_k_m) | 80% | 15% |
+| e5-large + Qwen(q4_k_m) | 85% | 30% |
+
+정직한 결론: **오타 교정에서는 semantic-ac가 편집거리를 이기지 못한다** — 문자
+단위 오차만 있는 문제는 편집거리로 이미 충분하며, 이 프로젝트가 그 위에서 얻는
+이득은 크지 않다. 진짜 차별점은 **문자열이 전혀 겹치지 않는 유의어**다 — 편집거리는
+구조적으로 이 범주에서 0%일 수밖에 없는 반면, semantic-ac는 임베딩 모델을 키울수록
+(`E5_MODEL_NAME`만 바꾸면 되고 재빌드 불필요, 위 ["임베딩 모델 연결/교체"](#임베딩-모델-연결교체-e5--원하는-sentence-transformers-모델)
+참고) 유의어 인식률이 5% → 15% → 30%로 실제로 개선된다. 진단해보면 병목은 Qwen
+생성이 아니라 Faiss/E5 검색 단계다 — 작은 임베딩 모델일수록 정답이 top-5 context에
+아예 들어오지 않는 경우가 많다.
 
 fixture가 40개 남짓의 수작업 표본이라 대표성에 한계가 있고(선정 편향 가능성), 이
-숫자는 "일반적인 품질 보증"이 아니라 "log 기반 스코어링만으로는 원천적으로 처리
-불가능한 오타/유의어를 실모델이 상당 부분 커버한다"는 것을 보여주는 재현 가능한
-근거로 봐야 한다. 모델/파라미터를 바꿀 때마다 이 스크립트로 회귀 여부를 확인할 것.
+숫자는 "일반적인 품질 보증"이 아니라 "리소스(임베딩 모델 크기)를 더 쓸수록 편집거리로는
+원천적으로 못 푸는 유의어 문제를 풀 수 있게 되는 조절 가능한 트레이드오프가
+실제로 존재한다"는 것을 보여주는 재현 가능한 근거로 봐야 한다. 모델/파라미터를 바꿀
+때마다 이 스크립트로 회귀 여부를 확인할 것.
 
 ### 저사양 환경 검증
 

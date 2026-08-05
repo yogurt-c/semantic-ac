@@ -17,23 +17,32 @@ semantic-ac는 추천 사전을 오프라인 배치에서 sLLM과 임베딩으�
 전부 배치 쪽으로 밀어내고, 서빙 경로는 `GET`/`SET` 수준의 단순한 Redis 조회만
 남깁니다.
 
-## 실측: 로그 기반 방식과 뭐가 다른가
+## 실측: 어디서 진짜 효과가 있는가
 
-말로만 하는 주장이 아니라 직접 재현 가능한 숫자로 보여줍니다. 오타/유의어 40개
-샘플(`packages/ai-engine/tests/fixtures/pipeline_quality_benchmark.json`)에 대해,
-로그만 쌓아두는 baseline(placeholder)과 실모델(E5 임베딩 + Qwen2.5-1.5B 4비트
-양자화)을 같은 파이프라인으로 돌려 Hit@5(상위 5개 추천 안에 정답이 있는 비율)를
-비교한 결과입니다.
+말로만 하는 주장이 아니라 직접 재현 가능한 숫자로 보여줍니다. 처음에는 이 프로젝트
+자체의 placeholder(항상 빈 리스트만 반환하는 stub)를 baseline으로 잡았는데, 그건
+"당연히 0%가 나올 수밖에 없는" 허수아비 비교였습니다. 그래서 실제로 많이 쓰이는
+비-ML 기법인 **Levenshtein 편집거리 기반 스펠체크**를 진짜 baseline으로 다시 잡고,
+문자열이 전혀 겹치지 않는 "진짜" 유의어 40개 샘플
+(`packages/ai-engine/tests/fixtures/pipeline_quality_benchmark.json`)로 Hit@5를
+비교했습니다.
 
-![baseline(로그만 사용) vs 실모델(E5+Qwen) Hit@5 비교 막대그래프](docs/assets/pipeline-quality-benchmark.png)
+![Levenshtein 편집거리 vs semantic-ac(임베딩 크기별) Hit@5 비교 막대그래프](docs/assets/pipeline-quality-benchmark.png)
 
 | 설정 | 오타 교정 | 유의어 |
 |---|---|---|
-| baseline(로그 기반 스코어링만) | 0% | 0% |
-| semantic-ac(E5 + Qwen 4비트 양자화) | 90% | 65% |
+| Levenshtein 편집거리(비-ML) | 100% | 0% |
+| semantic-ac(e5-small + Qwen) | 95% | 5% |
+| semantic-ac(e5-base + Qwen) | 80% | 15% |
+| semantic-ac(e5-large + Qwen) | 85% | 30% |
 
-baseline이 0%인 이유는 우연이 아니라 구조적입니다 — 정확히 그 오타를 이미 본 적이
-없으면 로그 기반 스코어링은 원천적으로 답을 낼 방법이 없습니다. 재현 방법과
+정직하게 말하면: **오타 교정만 필요하면 공짜인 편집거리로 이미 충분합니다** — 이
+프로젝트가 거기서 편집거리를 압도적으로 이기지는 못합니다. 이 프로젝트의 진짜
+차별점은 문자열이 아예 무관한 유의어 쪽입니다 — 편집거리는 구조적으로 0%일 수밖에
+없고, semantic-ac는 임베딩 모델 크기를 키울수록(`E5_MODEL_NAME` 하나만 바꾸면 됨,
+재빌드 불필요) 유의어 인식률이 실제로 올라갑니다(5% → 15% → 30%). 즉 이 프로젝트가
+파는 건 "무조건 더 정확함"이 아니라 **리소스를 더 쓸수록 편집거리로는 원천적으로
+못 푸는 문제를 풀 수 있게 되는 조절 가능한 트레이드오프**입니다. 재현 방법과
 fixture의 한계(수작업 40개 표본이라 대표성엔 한계가 있음)는
 [`packages/ai-engine/README.md`의 "파이프라인 품질 벤치마크"](packages/ai-engine/README.md#파이프라인-품질-벤치마크) 참고.
 

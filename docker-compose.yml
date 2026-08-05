@@ -36,8 +36,8 @@ services:
       retries: 5
 
   # 트랙 C: 상시 서빙 경로와 리소스 경합 없이 주기적으로 실행되는 원샷 배치 워커
-  # (TODO.md 0번 결정). 실모델(E5/Qwen) 연결 전까지는 HashingEmbeddingModel/
-  # NoopKeywordGenerator placeholder로 파이프라인 구조만 검증한다.
+  # (TODO.md 0번 결정). 기본값(EMBEDDING_PROVIDER=hashing, KEYWORD_GENERATOR_PROVIDER=noop)은
+  # HashingEmbeddingModel/NoopKeywordGenerator placeholder로 파이프라인 구조만 검증한다.
   ai-worker:
     build:
       context: ./packages/ai-engine
@@ -57,8 +57,25 @@ services:
       # SUGGESTION_MAX_LEN: "50"
       # SUGGESTION_BLOCKLIST_PATH: "/data/blocklist.txt"
       # SUGGESTION_GENERATED_MAX_SHARE: "0.3"
+      # 실모델(E5/Qwen) 연결(전부 선택, 미설정 시 placeholder 유지). 이미지는
+      # --extra models(sentence-transformers/llama-cpp-python)를 항상 포함하므로
+      # 재빌드 없이 아래 값만 채우면 된다. 다른 sentence-transformers 모델이나
+      # 다른 GGUF 모델로 바꾸고 싶을 때도 이미지를 다시 빌드할 필요 없이 값만
+      # 바꾸면 된다. 상세 설명은 packages/ai-engine/README.md의 "환경 변수"/
+      # "로드맵" 섹션 참고.
+      # EMBEDDING_PROVIDER: "e5"                 # hashing(기본) | e5
+      # E5_MODEL_NAME: "intfloat/multilingual-e5-small"
+      # KEYWORD_GENERATOR_PROVIDER: "qwen"        # noop(기본) | qwen
+      # QWEN_MODEL_PATH: "/models/qwen2.5-1.5b-instruct-q4_k_m.gguf"
+      # QWEN_N_CTX: "512"
+      # QWEN_MAX_TOKENS: "64"
     volumes:
       - duckdb-data:/data
+      # GGUF 모델 파일을 직접 다운로드해 올려두는 자리 (자동 다운로드는 하지
+      # 않는다 - packages/ai-engine/README.md "로드맵" 참고).
+      - ./models:/models
+      # E5 가중치(약 470MB) 캐시. 없으면 컨테이너 재시작마다 다시 받는다.
+      - hf-cache:/root/.cache/huggingface
     depends_on:
       redis:
         condition: service_healthy
@@ -70,3 +87,4 @@ services:
 
 volumes:
   duckdb-data:
+  hf-cache:

@@ -71,8 +71,7 @@ docker compose up -d --build --wait
 
 - `redis`, `search-server`(FastAPI, `:8000`), `ai-worker`(배치) 세 서비스가 뜹니다.
 - `ai-worker`는 기본적으로 `stub_components`의 placeholder 구현체(`HashingEmbeddingModel`,
-  `NoopKeywordGenerator`)로 배치 파이프라인의 구조만 검증합니다. 실제 임베딩/sLLM
-  모델을 연결하는 방법은 [`packages/ai-engine/README.md`](packages/ai-engine/README.md#로드맵)를 참고하세요.
+  `NoopKeywordGenerator`)로 배치 파이프라인의 구조만 검증합니다(실제 추천 품질 없음).
 
 동작 확인:
 
@@ -90,6 +89,32 @@ curl 'http://localhost:8000/suggest?q=노트북'
 ```bash
 ./scripts/e2e.sh
 ```
+
+### 실모델(E5/Qwen)로 전환하기
+
+위 placeholder는 배치 구조만 검증할 뿐 실제 추천 품질(오타 교정, "노트북"→"맥북" 같은
+연관어)은 만들어내지 않습니다. `docker-compose.yml`의 `ai-worker.environment`에서 아래
+주석을 해제하면 이미지를 다시 빌드하지 않고도 실모델로 전환됩니다:
+
+```yaml
+EMBEDDING_PROVIDER: "e5"
+KEYWORD_GENERATOR_PROVIDER: "qwen"
+QWEN_MODEL_PATH: "/models/qwen2.5-1.5b-instruct-q4_k_m.gguf"
+```
+
+Qwen GGUF 파일은 용량이 커서(수 GB) 자동으로 받지 않으므로 미리 `./models`에
+내려받아둬야 합니다:
+
+```bash
+pip install -U "huggingface_hub[cli]"
+huggingface-cli download Qwen/Qwen2.5-1.5B-Instruct-GGUF \
+  qwen2.5-1.5b-instruct-q4_k_m.gguf --local-dir ./models
+docker compose up -d ai-worker   # env var만 바뀌었으므로 재빌드 불필요
+```
+
+E5 임베딩 모델은 첫 배치 실행 시 자동으로 다운로드/캐시됩니다(별도 준비 불필요).
+다른 임베딩/GGUF 모델로 바꾸는 방법, env var 전체 목록, 생성 품질 검증 스크립트는
+[`packages/ai-engine/README.md`](packages/ai-engine/README.md#로드맵)를 참고하세요.
 
 ### 클라이언트 SDK 설치
 

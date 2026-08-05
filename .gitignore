@@ -15,6 +15,9 @@ yarn-error.log*
 .env.*
 !.env.example
 
+# GGUF/모델 가중치 (사용자가 직접 받아 ./models에 배치, 자동 다운로드/커밋 안 함)
+models/
+
 # Python
 __pycache__/
 *.py[cod]

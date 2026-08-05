@@ -181,13 +181,21 @@ pnpm add @semantic-ac/client
 ### 1. 배포
 
 docker-compose 세 서비스(`redis`, `search-server`, `ai-worker`)를 자사 인프라에
-띄웁니다. 최소한 아래 두 환경 변수는 반드시 실서비스 값으로 바꿔야 합니다
+띄웁니다. 최소한 아래 환경 변수는 반드시 실서비스 값으로 바꿔야 합니다
 (`docker-compose.yml` 참고).
 
 | 환경 변수 | 데모 기본값 | 실서비스에서 해야 할 일 |
 |---|---|---|
 | `ALLOWED_ORIGINS` | `*` | 자사 프런트엔드 도메인으로 좁히기 (콤마로 여러 개 가능) |
 | `DUCKDB_PATH` | 컨테이너 내부 임시 경로 | 영구 볼륨에 마운트 (재시작 시 검색 로그가 사라지지 않도록) |
+| `SUGGESTION_BLOCKLIST_PATH` | (미설정, 블록리스트 없음) | 욕설/스팸 차단 단어 목록 파일 경로 채우기 (코드에 하드코딩되어 있지 않음, 아래 [운영 체크리스트](#4-운영-체크리스트) 참고) |
+
+**가장 중요한 스위치는 표에는 없습니다**: `docker-compose.yml`을 그대로 띄우면
+`ai-worker`는 기본적으로 placeholder(`HashingEmbeddingModel`/`NoopKeywordGenerator`)로
+동작해 `/suggest`가 에러 없이 응답은 하지만 실제 추천 품질(오타 교정, "노트북"→"맥북"
+같은 연관어)은 전혀 만들어내지 않습니다. `EMBEDDING_PROVIDER`/`KEYWORD_GENERATOR_PROVIDER`를
+실모델로 전환해야 이 툴킷이 실제로 가치를 냅니다 — 방법은 위
+["실모델(E5/Qwen)로 전환하기"](#실모델e5qwen로-전환하기) 참고.
 
 `search-server`/`ai-engine`의 나머지 환경 변수는 각 패키지 README를 참고하세요.
 

@@ -40,7 +40,7 @@ semantic-ac는 추천 사전을 오프라인 배치에서 sLLM과 임베딩으�
 프로젝트가 거기서 편집거리를 압도적으로 이기지는 못합니다. 이 프로젝트의 진짜
 차별점은 문자열이 아예 무관한 유의어 쪽입니다 — 편집거리는 구조적으로 0%일 수밖에
 없고, semantic-ac는 임베딩 모델 크기를 키울수록(`E5_MODEL_NAME` 하나만 바꾸면 됨,
-재빌드 불필요) 유의어 인식률이 실제로 올라갑니다(5% → 15% → 30%). 즉 이 프로젝트가
+재빌드 불필요) 유의어 인식률이 실제로 올라갑니다(5% → 15% → 25%). 즉 이 프로젝트가
 파는 건 "무조건 더 정확함"이 아니라 **리소스를 더 쓸수록 편집거리로는 원천적으로
 못 푸는 문제를 풀 수 있게 되는 조절 가능한 트레이드오프**입니다. 재현 방법과
 fixture의 한계(수작업 40개 표본이라 대표성엔 한계가 있음)는
@@ -244,7 +244,9 @@ co-occurrence, [`packages/ai-engine/README.md`](packages/ai-engine/README.md) �
 │   ├── client/              @semantic-ac/client (TypeScript SDK)
 │   ├── server/               search-server (FastAPI)
 │   └── ai-engine/           ai-engine (Python 배치 파이프라인)
-├── scripts/e2e.sh           전체 스택 E2E 실행 스크립트
+├── scripts/
+│   ├── e2e.sh               전체 스택 E2E 실행 스크립트
+│   └── seed-demo-data/      콜드 스타트 없이 체험할 수 있는 데모 데이터 시딩 스크립트
 └── tests/e2e/run.mjs        E2E 검증 로직
 ```
 

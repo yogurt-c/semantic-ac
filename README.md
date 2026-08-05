@@ -34,7 +34,7 @@ semantic-ac는 추천 사전을 오프라인 배치에서 sLLM과 임베딩으�
 | Levenshtein 편집거리(비-ML) | 100% | 0% |
 | semantic-ac(e5-small + Qwen) | 95% | 5% |
 | semantic-ac(e5-base + Qwen) | 80% | 15% |
-| semantic-ac(e5-large + Qwen) | 85% | 30% |
+| semantic-ac(e5-large + Qwen) | 80% | 25% |
 
 정직하게 말하면: **오타 교정만 필요하면 공짜인 편집거리로 이미 충분합니다** — 이
 프로젝트가 거기서 편집거리를 압도적으로 이기지는 못합니다. 이 프로젝트의 진짜

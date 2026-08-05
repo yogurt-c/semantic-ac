@@ -54,6 +54,7 @@ FIXTURE_PATH = (
 )
 CHART_PATH = Path(__file__).resolve().parent.parent.parent.parent / "docs" / "assets" / "pipeline-quality-benchmark.png"
 TOP_K = 5
+QWEN_SEED = 42  # 고정 시드 - 실행마다 다른 결과가 나오면 코드 변경 효과를 노이즈와 구별할 수 없다
 TYPES = ["typo", "synonym"]
 E5_MODEL_SWEEP = [
     ("e5-small+qwen", "intfloat/multilingual-e5-small", "e5-small+Qwen (~470MB)"),
@@ -196,7 +197,9 @@ def main() -> None:
     results["levenshtein"] = _run_levenshtein_baseline(pairs)
 
     model_path = os.environ["QWEN_MODEL_PATH"]
-    qwen = QwenKeywordGenerator(model_path, n_ctx=int(os.environ.get("QWEN_N_CTX", DEFAULT_QWEN_N_CTX)))
+    qwen = QwenKeywordGenerator(
+        model_path, n_ctx=int(os.environ.get("QWEN_N_CTX", DEFAULT_QWEN_N_CTX)), seed=QWEN_SEED
+    )
     for step, (config_key, model_name, label) in enumerate(E5_MODEL_SWEEP, start=2):
         print(f"[{step}/{len(E5_MODEL_SWEEP) + 1}] {label} 실행 중... "
               "(최초 실행 시 모델 다운로드로 시간이 걸릴 수 있음)")

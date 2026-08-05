@@ -20,17 +20,35 @@ class QwenKeywordGenerator:
         *,
         n_ctx: int = DEFAULT_QWEN_N_CTX,
         max_tokens: int = DEFAULT_QWEN_MAX_TOKENS,
+        seed: int = -1,
+        temperature: float = 0.0,
     ) -> None:
         from llama_cpp import Llama
 
-        self._llm = Llama(model_path=model_path, n_ctx=n_ctx)
+        # 기본값(-1)은 매 프로세스마다 다른 시드를 써 생성 결과가 조금씩 달라진다 -
+        # 프로덕션 배치에서는 문제 없지만, 품질 벤치마크(scripts/eval_pipeline_quality.py)처럼
+        # "이 변경이 실제로 점수를 바꿨는지"를 노이즈와 구별해야 할 때는 고정 시드가 필요하다.
+        self._llm = Llama(model_path=model_path, n_ctx=n_ctx, seed=seed)
         self._max_tokens = max_tokens
+        self._temperature = temperature
 
     def generate(self, prefix: str, context: list[str]) -> list[str]:
         prompt = (
             "다음 검색어와 연관된 오타/유의어 키워드를 콤마로 구분해 나열하라.\n"
             f"검색어: {prefix}\n연관 키워드: {', '.join(context)}\n출력:"
         )
-        output = self._llm(prompt, max_tokens=self._max_tokens)
+        # stop=["\n"]으로 콤마 목록 한 줄만 받는다. 이게 없으면 모델이 목록 뒤에
+        # 줄바꿈으로 번역/부연설명을 덧붙이는 경우가 있는데(예: "노트북\n번역결과: ..."),
+        # split(",")가 그 덩어리를 통째로 한 후보로 묶어 정답 문자열을 오염시킨다
+        # (scripts/eval_pipeline_quality.py 벤치마크에서 실측된 실패 사례).
+        #
+        # temperature 기본값 0(탐욕적 디코딩): llama.cpp 기본값(0.8)에서는 context에
+        # 정답이 있어도 모델이 그걸 그대로 쓰지 않고 그럴듯한 변형을 창작하는 경우가
+        # 있었다(예: "노트북"이 context에 있는데 "노트부"/"카메라상"을 생성). 오타/유의어
+        # 교정은 창의성보다 context를 그대로 베끼는 게 유리해 벤치마크의 오타 Hit@5가
+        # 이 변경만으로 90%→95%로 올랐다.
+        output = self._llm(
+            prompt, max_tokens=self._max_tokens, stop=["\n"], temperature=self._temperature
+        )
         text = output["choices"][0]["text"]
         return [candidate.strip() for candidate in text.split(",") if candidate.strip()]

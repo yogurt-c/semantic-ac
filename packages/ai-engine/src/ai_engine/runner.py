@@ -9,6 +9,8 @@ import redis
 
 from ai_engine.candidate_filters import DEFAULT_MAX_LENGTH, DEFAULT_MIN_LENGTH, load_wordlist
 from ai_engine.db_reader import fetch_search_events
+from ai_engine.embeddings import DEFAULT_E5_MODEL_NAME, E5SmallEmbeddingModel, EmbeddingModel
+from ai_engine.keyword_generator import KeywordGenerator
 from ai_engine.pipeline import (
     DEFAULT_CONTEXT_SIZE,
     DEFAULT_COOCCURRENCE_HALF_LIFE_HOURS,
@@ -17,6 +19,11 @@ from ai_engine.pipeline import (
     DEFAULT_MIN_OCCURRENCES,
     DEFAULT_TOP_N,
     run_batch,
+)
+from ai_engine.qwen_keyword_generator import (
+    DEFAULT_QWEN_MAX_TOKENS,
+    DEFAULT_QWEN_N_CTX,
+    QwenKeywordGenerator,
 )
 from ai_engine.stub_components import HashingEmbeddingModel, NoopKeywordGenerator
 
@@ -28,11 +35,37 @@ DEFAULT_DUCKDB_PATH = "data/search_events.duckdb"
 DEFAULT_INDEX_PATH = "data/index.faiss"
 
 
+def build_embedding_model() -> EmbeddingModel:
+    """EMBEDDING_PROVIDER env var로 임베딩 모델을 선택한다 (hashing(기본) | e5)."""
+    provider = os.environ.get("EMBEDDING_PROVIDER", "hashing")
+    if provider == "hashing":
+        return HashingEmbeddingModel()
+    if provider == "e5":
+        model_name = os.environ.get("E5_MODEL_NAME", DEFAULT_E5_MODEL_NAME)
+        return E5SmallEmbeddingModel(model_name)
+    raise ValueError(f"unknown EMBEDDING_PROVIDER: {provider!r}")
+
+
+def build_keyword_generator() -> KeywordGenerator:
+    """KEYWORD_GENERATOR_PROVIDER env var로 키워드 생성기를 선택한다 (noop(기본) | qwen)."""
+    provider = os.environ.get("KEYWORD_GENERATOR_PROVIDER", "noop")
+    if provider == "noop":
+        return NoopKeywordGenerator()
+    if provider == "qwen":
+        model_path = os.environ["QWEN_MODEL_PATH"]
+        n_ctx = int(os.environ.get("QWEN_N_CTX", DEFAULT_QWEN_N_CTX))
+        max_tokens = int(os.environ.get("QWEN_MAX_TOKENS", DEFAULT_QWEN_MAX_TOKENS))
+        return QwenKeywordGenerator(model_path, n_ctx=n_ctx, max_tokens=max_tokens)
+    raise ValueError(f"unknown KEYWORD_GENERATOR_PROVIDER: {provider!r}")
+
+
 def run_once(
     redis_url: str,
     duckdb_path: str,
     index_path: str,
     *,
+    embedding_model: EmbeddingModel | None = None,
+    keyword_generator: KeywordGenerator | None = None,
     top_n: int = DEFAULT_TOP_N,
     context_size: int = DEFAULT_CONTEXT_SIZE,
     cooccurrence_half_life_hours: float = DEFAULT_COOCCURRENCE_HALF_LIFE_HOURS,
@@ -45,9 +78,9 @@ def run_once(
 ) -> dict[str, list[str]]:
     """search_events를 읽어 배치 1회를 실행한다.
 
-    실모델(E5/Qwen) 연결 전까지는 HashingEmbeddingModel/NoopKeywordGenerator
-    placeholder로 파이프라인 구조만 검증한다 (stub_components.py 참고).
-    NoopKeywordGenerator를 실모델로 교체해도 run_batch가 항상
+    embedding_model/keyword_generator를 넘기지 않으면 HashingEmbeddingModel/
+    NoopKeywordGenerator placeholder로 파이프라인 구조만 검증한다
+    (stub_components.py 참고). 실모델(E5/Qwen)을 넘겨도 run_batch가 항상
     GuardedKeywordGenerator로 감싸기 때문에 정제 가드레일은 그대로 적용된다.
     """
     events = fetch_search_events(duckdb_path)
@@ -58,8 +91,8 @@ def run_once(
     client = redis.Redis.from_url(redis_url, decode_responses=True)
     return run_batch(
         events,
-        HashingEmbeddingModel(),
-        NoopKeywordGenerator(),
+        embedding_model or HashingEmbeddingModel(),
+        keyword_generator or NoopKeywordGenerator(),
         client,
         index_path,
         top_n=top_n,
@@ -107,11 +140,19 @@ def main(argv: list[str] | None = None) -> None:
     )
     blocklist = load_wordlist(os.environ.get("SUGGESTION_BLOCKLIST_PATH"))
 
+    # 배치 루프 진입 전 1회만 생성 — 매 주기 GGUF/E5 가중치를 다시 로드하지 않기
+    # 위함이다. QWEN_MODEL_PATH 누락 등 설정 오류는 위 env var 파싱과 동일하게
+    # 여기서 즉시 실패해 운영자가 바로 알아챌 수 있게 한다.
+    embedding_model = build_embedding_model()
+    keyword_generator = build_keyword_generator()
+
     def _run_once() -> dict[str, list[str]]:
         return run_once(
             redis_url,
             duckdb_path,
             index_path,
+            embedding_model=embedding_model,
+            keyword_generator=keyword_generator,
             top_n=top_n,
             context_size=context_size,
             cooccurrence_half_life_hours=cooccurrence_half_life_hours,

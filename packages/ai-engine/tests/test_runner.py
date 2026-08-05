@@ -9,6 +9,8 @@ import fakeredis
 import pytest
 
 from ai_engine import runner as runner_module
+from ai_engine.embeddings import E5SmallEmbeddingModel
+from ai_engine.stub_components import HashingEmbeddingModel, NoopKeywordGenerator
 
 _CREATE_TABLE_SQL = """
 CREATE TABLE search_events (
@@ -217,6 +219,124 @@ def test_main_once_loads_blocklist_from_path_env_var(monkeypatch, tmp_path: Path
     runner_module.main(["--once"])
 
     assert captured_kwargs["blocklist"] == frozenset({"스팸단어"})
+
+
+def test_build_embedding_model_defaults_to_hashing(monkeypatch):
+    monkeypatch.delenv("EMBEDDING_PROVIDER", raising=False)
+
+    model = runner_module.build_embedding_model()
+
+    assert isinstance(model, HashingEmbeddingModel)
+
+
+def test_build_embedding_model_returns_e5_when_provider_env_var_set(monkeypatch):
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "e5")
+    monkeypatch.setenv("E5_MODEL_NAME", "custom/multilingual-model")
+
+    model = runner_module.build_embedding_model()
+
+    assert isinstance(model, E5SmallEmbeddingModel)
+    assert model.model_name == "custom/multilingual-model"
+    assert model.is_loaded is False
+
+
+def test_build_embedding_model_raises_for_unknown_provider(monkeypatch):
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "bogus")
+
+    with pytest.raises(ValueError, match="bogus"):
+        runner_module.build_embedding_model()
+
+
+def test_build_keyword_generator_defaults_to_noop(monkeypatch):
+    monkeypatch.delenv("KEYWORD_GENERATOR_PROVIDER", raising=False)
+
+    generator = runner_module.build_keyword_generator()
+
+    assert isinstance(generator, NoopKeywordGenerator)
+
+
+def test_build_keyword_generator_returns_qwen_when_provider_env_var_set(monkeypatch):
+    captured_kwargs: dict = {}
+
+    class _FakeQwenKeywordGenerator:
+        def __init__(self, model_path: str, *, n_ctx: int, max_tokens: int) -> None:
+            captured_kwargs["model_path"] = model_path
+            captured_kwargs["n_ctx"] = n_ctx
+            captured_kwargs["max_tokens"] = max_tokens
+
+    monkeypatch.setattr(runner_module, "QwenKeywordGenerator", _FakeQwenKeywordGenerator)
+    monkeypatch.setenv("KEYWORD_GENERATOR_PROVIDER", "qwen")
+    monkeypatch.setenv("QWEN_MODEL_PATH", "/models/qwen.gguf")
+    monkeypatch.setenv("QWEN_N_CTX", "256")
+    monkeypatch.setenv("QWEN_MAX_TOKENS", "32")
+
+    generator = runner_module.build_keyword_generator()
+
+    assert isinstance(generator, _FakeQwenKeywordGenerator)
+    assert captured_kwargs == {"model_path": "/models/qwen.gguf", "n_ctx": 256, "max_tokens": 32}
+
+
+def test_build_keyword_generator_uses_defaults_when_optional_qwen_env_vars_unset(monkeypatch):
+    captured_kwargs: dict = {}
+
+    class _FakeQwenKeywordGenerator:
+        def __init__(self, model_path: str, *, n_ctx: int, max_tokens: int) -> None:
+            captured_kwargs["model_path"] = model_path
+            captured_kwargs["n_ctx"] = n_ctx
+            captured_kwargs["max_tokens"] = max_tokens
+
+    monkeypatch.setattr(runner_module, "QwenKeywordGenerator", _FakeQwenKeywordGenerator)
+    monkeypatch.setenv("KEYWORD_GENERATOR_PROVIDER", "qwen")
+    monkeypatch.setenv("QWEN_MODEL_PATH", "/models/qwen.gguf")
+    monkeypatch.delenv("QWEN_N_CTX", raising=False)
+    monkeypatch.delenv("QWEN_MAX_TOKENS", raising=False)
+
+    runner_module.build_keyword_generator()
+
+    assert captured_kwargs["n_ctx"] == runner_module.DEFAULT_QWEN_N_CTX
+    assert captured_kwargs["max_tokens"] == runner_module.DEFAULT_QWEN_MAX_TOKENS
+
+
+def test_build_keyword_generator_raises_when_qwen_model_path_missing(monkeypatch):
+    monkeypatch.setenv("KEYWORD_GENERATOR_PROVIDER", "qwen")
+    monkeypatch.delenv("QWEN_MODEL_PATH", raising=False)
+
+    with pytest.raises(KeyError):
+        runner_module.build_keyword_generator()
+
+
+def test_build_keyword_generator_raises_for_unknown_provider(monkeypatch):
+    monkeypatch.setenv("KEYWORD_GENERATOR_PROVIDER", "bogus")
+
+    with pytest.raises(ValueError, match="bogus"):
+        runner_module.build_keyword_generator()
+
+
+def test_main_once_builds_and_passes_configured_components_to_run_batch(monkeypatch, tmp_path: Path):
+    duckdb_path = tmp_path / "events.duckdb"
+    _seed_events_db(duckdb_path)
+    monkeypatch.setenv("DUCKDB_PATH", str(duckdb_path))
+    monkeypatch.setenv("INDEX_PATH", str(tmp_path / "index.faiss"))
+    monkeypatch.delenv("EMBEDDING_PROVIDER", raising=False)
+    monkeypatch.delenv("KEYWORD_GENERATOR_PROVIDER", raising=False)
+
+    captured_args: list = []
+
+    def _fake_run_batch(events, embedding_model, keyword_generator, redis_client, index_path, **kwargs):
+        captured_args.extend([embedding_model, keyword_generator])
+        return {}
+
+    monkeypatch.setattr(runner_module, "run_batch", _fake_run_batch)
+    monkeypatch.setattr(
+        runner_module.redis.Redis,
+        "from_url",
+        staticmethod(lambda *args, **kwargs: fakeredis.FakeStrictRedis(decode_responses=True)),
+    )
+
+    runner_module.main(["--once"])
+
+    assert isinstance(captured_args[0], HashingEmbeddingModel)
+    assert isinstance(captured_args[1], NoopKeywordGenerator)
 
 
 def test_main_uses_batch_interval_seconds_env_var(monkeypatch):

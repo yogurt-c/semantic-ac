@@ -89,9 +89,9 @@ LLM 생성기 레이어는 최종 `top_n` 중 `SUGGESTION_GENERATED_MAX_SHARE`
 
 ## 기술 스택
 
-- 임베딩 모델: `intfloat/multilingual-e5-small`
+- 임베딩 모델: `intfloat/multilingual-e5-small` (다른 sentence-transformers 모델로 교체 가능 — [로드맵](#로드맵) 참고)
 - Vector DB: Faiss (라이브러리 내장, 별도 서버 프로세스 없음)
-- sLLM: Llama.cpp + Qwen2.5-1.5B-GGUF (4-bit 양자화) — 연결 방법은 아래 [로드맵](#로드맵) 참고
+- sLLM: Llama.cpp + Qwen2.5-1.5B-GGUF (4-bit 양자화, 다른 GGUF 모델로 교체 가능) — 연결 방법은 아래 [로드맵](#로드맵) 참고
 
 ## Structure
 
@@ -104,15 +104,23 @@ src/ai_engine/
   embeddings.py          EmbeddingModel Protocol + E5SmallEmbeddingModel(실제 통합 지점)
   vector_index.py        Faiss 인덱스 빌드 / 원자적 저장(os.replace) / 최근접 검색
   keyword_generator.py   KeywordGenerator Protocol (오타/문맥 연관 키워드 생성)
+  qwen_keyword_generator.py  Llama.cpp + Qwen2.5-1.5B-GGUF 실제 통합 지점(KeywordGenerator)
   guarded_keyword_generator.py  KeywordGenerator 래퍼 — 예외/형식 오류/환각 후보 방어
   candidate_filters.py   불용어/길이/숫자·특수문자만/블록리스트 정제 + 정규화 dedup
   redis_writer.py        sugg:{prefix} 원자적 SET (docs/CONTRACT.md 섹션 3)
   pipeline.py            스코어링 -> co-occurrence -> 임베딩/Faiss -> KeywordGenerator -> 정제 -> Redis 조립
-  stub_components.py     HashingEmbeddingModel/NoopKeywordGenerator — 실모델 연결
-                         전 docker-compose 기본값 placeholder (실제 추천 품질 없음)
+  stub_components.py     HashingEmbeddingModel/NoopKeywordGenerator — 실모델 없이도
+                         docker-compose가 즉시 뜨도록 하는 기본값 placeholder (실제
+                         추천 품질 없음, EMBEDDING_PROVIDER/KEYWORD_GENERATOR_PROVIDER로 전환)
   runner.py              env var(REDIS_URL/DUCKDB_PATH/INDEX_PATH/BATCH_INTERVAL_SECONDS)
                          기반 배치 실행 진입점. `--once`(1회 실행, 예외 전파) /
-                         기본(반복 실행, 예외 로깅 후 다음 주기 재시도) 두 모드 지원
+                         기본(반복 실행, 예외 로깅 후 다음 주기 재시도) 두 모드 지원.
+                         build_embedding_model()/build_keyword_generator()가
+                         EMBEDDING_PROVIDER/KEYWORD_GENERATOR_PROVIDER로 stub↔실모델을 선택
+scripts/
+  eval_keyword_generator.py  설정된 KeywordGenerator의 생성 품질을
+                         tests/fixtures/typo_synonym_pairs.json으로 정성 검수하는
+                         수동 스크립트 (pytest 게이트 밖, 실모델 전제 — "생성 품질 평가" 참고)
 tests/
   conftest.py            FakeEmbeddingModel, FakeKeywordGenerator 등 테스트 더블
   fixtures/typo_synonym_pairs.json   한국어 오타/유의어 평가 샘플 15개
@@ -135,9 +143,12 @@ events = fetch_search_events("path/to/search_events.duckdb")
 run_batch(events, embedding_model, keyword_generator, redis_client, "path/to/index.faiss")
 ```
 
-docker-compose 환경에서는 `runner.py`가 기본값으로 `stub_components`의
-placeholder(`HashingEmbeddingModel`, `NoopKeywordGenerator`)를 주입해 파이프라인
-구조만 검증한다. 실제 임베딩/sLLM 모델을 연결하려면 아래 로드맵을 참고한다.
+docker-compose 환경에서는 `runner.py`의 `build_embedding_model()`/
+`build_keyword_generator()`가 `EMBEDDING_PROVIDER`/`KEYWORD_GENERATOR_PROVIDER`
+env var로 `stub_components`의 placeholder(`HashingEmbeddingModel`,
+`NoopKeywordGenerator`, 기본값)와 실모델(`E5SmallEmbeddingModel`,
+`QwenKeywordGenerator`) 사이를 전환한다. 실모델 연결 방법은 아래 [로드맵](#로드맵)을
+참고한다.
 
 ## 환경 변수
 
@@ -160,69 +171,134 @@ placeholder(`HashingEmbeddingModel`, `NoopKeywordGenerator`)를 주입해 파이
 | `SUGGESTION_MAX_LEN` | `50` | 추천 후보 문자열의 최대 길이 |
 | `SUGGESTION_BLOCKLIST_PATH` | (미설정) | 욕설/스팸 차단 단어 목록 파일 경로(줄 단위, `#` 주석 지원). 미설정 시 블록리스트 없음 |
 | `SUGGESTION_GENERATED_MAX_SHARE` | `0.3` | 최종 `top_n` 중 LLM 생성기 레이어가 차지할 수 있는 최대 비중(0~1) |
+| `EMBEDDING_PROVIDER` | `hashing` | `hashing`(placeholder) \| `e5`(`E5SmallEmbeddingModel` 실모델) |
+| `E5_MODEL_NAME` | `intfloat/multilingual-e5-small` | `e5` provider일 때 로드할 sentence-transformers 모델 이름. 다른 다국어 임베딩 모델로 교체 가능 |
+| `KEYWORD_GENERATOR_PROVIDER` | `noop` | `noop`(placeholder) \| `qwen`(`QwenKeywordGenerator` 실모델) |
+| `QWEN_MODEL_PATH` | (미설정) | `qwen` provider일 때 필수. GGUF 파일 경로. 다른 GGUF 모델(다른 크기/모델군)로 교체 가능 |
+| `QWEN_N_CTX` | `512` | llama.cpp context 크기 |
+| `QWEN_MAX_TOKENS` | `64` | 생성 최대 토큰 수 |
 
 ## 로드맵
 
-`EmbeddingModel`/`KeywordGenerator`는 둘 다 Protocol로 정의된 통합 지점이라, 아래
-구현체로 교체하는 것만으로 실모델을 연결할 수 있다.
+`EmbeddingModel`/`KeywordGenerator`는 둘 다 Protocol로 정의된 통합 지점이라,
+`runner.py`가 env var만으로 아래 구현체와 stub 사이를 전환한다 — **이미지를
+다시 빌드할 필요 없이** 값만 바꾸면 된다. 아래는 실제로 그대로 복사해서 실행할 수
+있는 절차다.
 
-### multilingual-e5-small 연결
+### 임베딩 모델 연결/교체 (E5 → 원하는 sentence-transformers 모델)
 
-`E5SmallEmbeddingModel`(`embeddings.py`)은 이미 구현되어 있다.
-`encode_passages()`/`encode_query()`를 처음 호출하는 시점에 `sentence-transformers`가
-지연 임포트되어 모델 가중치(약 470MB)를 다운로드/로드한다. e5 계열 모델은 인덱싱
-대상(passage)과 질의(query)에 서로 다른 프리픽스를 붙여야 검색 품질이 보장되므로,
-`EmbeddingModel` Protocol도 두 메서드로 역할을 분리해두었다.
+**1. 로컬에서 바로 써보기** (docker-compose 이미지는 `--extra models`를 항상
+포함하므로 이 설치는 로컬 직접 실행 시에만 필요):
 
 ```bash
-uv sync --extra models   # sentence-transformers 설치
+uv sync --extra models
+export EMBEDDING_PROVIDER=e5
+uv run python -m ai_engine.runner --once
 ```
 
-운영 환경에서는 최초 배치 실행 전에 모델을 미리 캐시해두어(`HF_HOME` 등) 배치
-실행 중 네트워크 의존을 없애는 것을 권장한다.
+첫 실행 시 `sentence-transformers`가 `intfloat/multilingual-e5-small`(약 470MB)을
+Hugging Face에서 받아 `~/.cache/huggingface`에 캐시한다(두 번째 실행부터는 네트워크
+호출 없음).
 
-### Llama.cpp + Qwen2.5-1.5B-GGUF 연결
+**2. docker-compose에서 켜기**: `docker-compose.yml`의 `ai-worker.environment`에서
+`EMBEDDING_PROVIDER: "e5"` 주석을 해제한 뒤:
 
-`KeywordGenerator` Protocol만 정의되어 있고, 리소스 소모가 큰 GGUF 모델(수 GB)
-다운로드와 추론 연결은 사용자가 직접 진행하도록 남겨두었다. 다음과 같은 구현체를
-`stub_components`의 `NoopKeywordGenerator()` 자리에 대신 주입하면 된다:
-
-```python
-from llama_cpp import Llama
-
-class QwenKeywordGenerator:
-    def __init__(self, model_path: str) -> None:
-        self._llm = Llama(model_path=model_path, n_ctx=512)
-
-    def generate(self, prefix: str, context: list[str]) -> list[str]:
-        prompt = (
-            f"다음 검색어와 연관된 오타/유의어 키워드를 콤마로 구분해 나열하라.\n"
-            f"검색어: {prefix}\n연관 키워드: {', '.join(context)}\n출력:"
-        )
-        output = self._llm(prompt, max_tokens=64)
-        text = output["choices"][0]["text"]
-        return [candidate.strip() for candidate in text.split(",") if candidate.strip()]
+```bash
+docker compose up -d ai-worker   # env var만 바뀌었으므로 재빌드 불필요
 ```
 
-- 모델: `Qwen2.5-1.5B-Instruct-GGUF` (Q4_K_M 등 4-bit 양자화 버전)
-- 설치: `uv sync --extra models` (`llama-cpp-python` 포함)
-- 생성 품질을 정성 검수하려면 `tests/fixtures/typo_synonym_pairs.json`을 활용한다.
+**3. 다른 모델로 바꾸기**: 코드 수정도 재빌드도 필요 없다, `E5_MODEL_NAME`만 바꾸면
+된다. 예를 들어 더 큰(정확도↑, 속도/메모리↓) 버전으로:
 
-위 예시처럼 자유 텍스트를 `split(",")`로 파싱해도 `pipeline.run_batch`가 이
+```bash
+export E5_MODEL_NAME=intfloat/multilingual-e5-base
+uv run python -m ai_engine.runner --once
+```
+
+sentence-transformers Hub에 있는 어떤 모델 이름이든 넣을 수 있지만, `e5` 계열이 아닌
+모델(예: `BAAI/bge-*`)로 완전히 바꾸는 경우 문서(모델 카드)의 프리픽스 규칙이
+`intfloat/multilingual-e5-*`와 다를 수 있으니 `embeddings.py`의
+`E5_QUERY_PREFIX`/`E5_PASSAGE_PREFIX` 상수도 함께 맞춰야 한다.
+
+### 생성 모델(Qwen GGUF) 연결/교체
+
+**1. GGUF 파일 다운로드** (자동 다운로드는 하지 않는다 — 수 GB라 명시적으로 받게
+해둔 것):
+
+```bash
+pip install -U "huggingface_hub[cli]"
+huggingface-cli download Qwen/Qwen2.5-1.5B-Instruct-GGUF \
+  qwen2.5-1.5b-instruct-q4_k_m.gguf --local-dir ./models
+```
+
+**2. 로컬에서 바로 써보기**:
+
+```bash
+uv sync --extra models
+export KEYWORD_GENERATOR_PROVIDER=qwen
+export QWEN_MODEL_PATH=./models/qwen2.5-1.5b-instruct-q4_k_m.gguf
+uv run python -m ai_engine.runner --once
+```
+
+**3. docker-compose에서 켜기**: 위에서 받은 GGUF가 `./models`에 있으면 컨테이너의
+`/models`에 그대로 마운트된다. `docker-compose.yml`의 `ai-worker.environment`에서
+`KEYWORD_GENERATOR_PROVIDER`/`QWEN_MODEL_PATH` 주석을 해제(경로는
+`/models/qwen2.5-1.5b-instruct-q4_k_m.gguf`)한 뒤:
+
+```bash
+docker compose up -d ai-worker   # env var만 바뀌었으므로 재빌드 불필요
+```
+
+**4. 다른 GGUF 모델로 바꾸기**: 같은 방식으로 원하는 GGUF를 받아 `./models`에 넣고
+`QWEN_MODEL_PATH`만 그 파일로 가리키면 된다. 예를 들어 더 큰 Qwen으로:
+
+```bash
+huggingface-cli download Qwen/Qwen2.5-3B-Instruct-GGUF \
+  qwen2.5-3b-instruct-q4_k_m.gguf --local-dir ./models
+export QWEN_MODEL_PATH=./models/qwen2.5-3b-instruct-q4_k_m.gguf
+```
+
+`llama-cpp-python`은 GGUF 메타데이터로 모델 아키텍처를 자동 인식하므로 Qwen이 아닌
+다른 모델 계열(Llama, Mistral 등)의 GGUF도 그대로 로드는 된다. 다만
+`qwen_keyword_generator.py`의 프롬프트 문자열은 Qwen이 기대하는 형식으로 짜여 있어,
+완전히 다른 모델 계열로 바꾸면 그 모델의 instruct 프롬프트 템플릿에 맞게 프롬프트를
+조정해야 생성 품질이 유지된다 — 바꾼 뒤에는 항상 아래
+["생성 품질 평가"](#생성-품질-평가) 스크립트로 확인할 것.
+
+**5. 안전장치**: 자유 텍스트를 `split(",")`로 파싱하지만, `pipeline.run_batch`가 이
 구현체를 자동으로 `GuardedKeywordGenerator`로 감싸므로(위
-["후보 정제와 LLM 가드레일"](#후보-정제와-llm-가드레일) 참고), 파싱 실패나
-모델의 malformed 응답이 배치를 죽이거나 오염된 값을 그대로 노출시키지는 않는다.
-다만 가능하다면 `llama-cpp-python`의 grammar/JSON 모드로 구조화된 출력을
-받도록 프롬프트를 개선하는 쪽이 `split(",")` 파싱보다 안전하다 — 특히
-`context`에 사용자가 입력한 원문이 그대로 들어가므로, 프롬프트 인젝션을
-피하려면 `context`를 지시문이 아니라 순수 참고 데이터로만 취급하는 프롬프트
-구조를 유지해야 한다.
+["후보 정제와 LLM 가드레일"](#후보-정제와-llm-가드레일) 참고), 파싱 실패나 모델의
+malformed 응답이 배치를 죽이거나 오염된 값을 그대로 노출시키지는 않는다. 다만
+가능하다면 `llama-cpp-python`의 grammar/JSON 모드로 구조화된 출력을 받도록 프롬프트를
+개선하는 쪽이 `split(",")` 파싱보다 안전하다 — 특히 `context`에 사용자가 입력한
+원문이 그대로 들어가므로, 프롬프트 인젝션을 피하려면 `context`를 지시문이 아니라
+순수 참고 데이터로만 취급하는 프롬프트 구조를 유지해야 한다(`QwenKeywordGenerator`는
+이 원칙을 그대로 따른다).
+
+### 생성 품질 평가
+
+`scripts/eval_keyword_generator.py`가 설정된 `KeywordGenerator`(env var로 결정,
+`GuardedKeywordGenerator`로 감싼 실제 production 경로)를
+`tests/fixtures/typo_synonym_pairs.json`(한국어 오타/유의어 샘플 15개)으로 돌려
+항목별 pass/fail과 type(typo/synonym)별·전체 정확도를 출력한다. pytest 스위트/커버리지
+게이트 밖에 있다 — 실모델 가중치가 전제이므로 CI에서 자동 실행하지 않는다.
+
+```bash
+uv sync --extra models
+export KEYWORD_GENERATOR_PROVIDER=qwen
+export QWEN_MODEL_PATH=/path/to/qwen2.5-1.5b-instruct-q4_k_m.gguf
+uv run python scripts/eval_keyword_generator.py
+```
+
+fixture에는 Faiss 컨텍스트가 없어 빈 컨텍스트로 평가한다는 한계가 있다 — 실제
+파이프라인에서는 `nearest_keywords()`가 찾은 의미적 인접 키워드가 context로 함께
+들어가므로, 이 스크립트의 정확도는 실제 배치보다 다소 보수적으로 나올 수 있다.
 
 ### 저사양 환경 검증
 
 `docker-compose.yml`의 `ai-worker` 서비스는 `deploy.resources.limits`로 CPU/메모리를
-캡핑해두었다. 실모델(E5/Qwen)을 연결한 뒤에는 실제 저사양 vCPU/RAM 환경에서 해당
-제한값으로 배치가 안정적으로 도는지 별도로 검증하는 것을 권장한다.
+캡핑해두었다. 실모델(E5/Qwen)이 연결된 지금, 실제 저사양 vCPU/RAM 환경에서 해당
+제한값으로 배치가 안정적으로 도는지 별도로 검증하는 것을 권장한다(`TODO.md` 참고).
 
 ## License
 
